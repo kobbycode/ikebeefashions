@@ -279,6 +279,34 @@ const Admin = () => {
     }
   };
 
+  const statusFlow = ['pending', 'packing', 'delivering', 'delivered'];
+
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      const orderItem = data.orders.find(o => o.id === orderId);
+      const historyEntry = { status: newStatus, timestamp: new Date().toISOString() };
+      const existingHistory = Array.isArray(orderItem?.statusHistory) ? orderItem.statusHistory : [];
+      existingHistory.push(historyEntry);
+      await updateDoc(orderRef, {
+        status: newStatus,
+        statusHistory: existingHistory,
+        updatedAt: serverTimestamp()
+      });
+      await customAlert(`Order status updated to "${newStatus}".`, "success");
+      fetchData();
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      await customAlert("Failed to update order status.", "danger");
+    }
+  };
+
+  const getNextStatus = (currentStatus) => {
+    const idx = statusFlow.indexOf(currentStatus);
+    if (idx === -1 || idx >= statusFlow.length - 1) return null;
+    return statusFlow[idx + 1];
+  };
+
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Just now';
     const date = timestamp.toDate();
@@ -693,9 +721,24 @@ const Admin = () => {
                             </td>
                             <td className="py-5 text-sm text-white">GHS {item.total}</td>
                             <td className="py-5 text-sm">
-                              <span className={`px-2 py-1 text-[10px] uppercase tracking-widest ${item.status === 'paid' ? 'bg-green-900/50 text-green-400' : 'bg-yellow-900/50 text-yellow-400'}`}>
-                                {item.status}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-1 text-[10px] uppercase tracking-widest whitespace-nowrap ${
+                                  item.status === 'delivered' ? 'bg-green-900/50 text-green-400' :
+                                  item.status === 'delivering' ? 'bg-blue-900/50 text-blue-400' :
+                                  item.status === 'packing' ? 'bg-purple-900/50 text-purple-400' :
+                                  'bg-yellow-900/50 text-yellow-400'
+                                }`}>
+                                  {item.status}
+                                </span>
+                                {getNextStatus(item.status) && (
+                                  <button
+                                    onClick={() => handleUpdateOrderStatus(item.id, getNextStatus(item.status))}
+                                    className="text-[#C5A880] hover:text-white text-[10px] uppercase tracking-widest border border-[#C5A880]/30 hover:border-white px-2 py-1 transition-colors whitespace-nowrap"
+                                  >
+                                    → {getNextStatus(item.status)}
+                                  </button>
+                                )}
+                              </div>
                             </td>
                             <td className="py-5 text-right">
                               <button onClick={() => setSelectedRequest(item)} className="text-[#C5A880] hover:text-white text-[10px] uppercase tracking-widest border border-[#C5A880]/30 hover:border-white px-3 py-1 transition-colors whitespace-nowrap">View Details</button>
@@ -771,7 +814,37 @@ const Admin = () => {
                       <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Customer</span>{selectedRequest.customerInfo?.firstName} {selectedRequest.customerInfo?.lastName}</div>
                       <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Email</span>{selectedRequest.customerInfo?.email}</div>
                       <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Phone</span>{selectedRequest.customerInfo?.phone}</div>
-                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Status</span><span className={`uppercase tracking-widest ${selectedRequest.status === 'paid' ? 'text-green-400' : 'text-yellow-400'}`}>{selectedRequest.status}</span></div>
+                      <div className="md:col-span-2">
+                        <span className="block text-[10px] text-white/40 uppercase tracking-widest mb-3">Order Timeline</span>
+                        <div className="flex items-center gap-0">
+                          {statusFlow.map((stage, i) => {
+                            const history = Array.isArray(selectedRequest.statusHistory) ? selectedRequest.statusHistory : [];
+                            const stageIdx = history.findIndex(h => h.status === stage);
+                            const isReached = stageIdx !== -1;
+                            const isCurrent = history.length > 0 && history[history.length - 1].status === stage;
+                            return (
+                              <div key={stage} className="flex items-center flex-1">
+                                <div className="flex flex-col items-center">
+                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                                    isReached ? 'bg-[#C5A880] text-white' : 'bg-white/10 text-white/30'
+                                  } ${isCurrent ? 'ring-2 ring-[#C5A880] ring-offset-2 ring-offset-[#1A1A1A]' : ''}`}>
+                                    {isReached ? '✓' : i + 1}
+                                  </div>
+                                  <span className={`text-[8px] uppercase tracking-widest mt-1 whitespace-nowrap ${
+                                    isReached ? 'text-[#C5A880]' : 'text-white/30'
+                                  }`}>{stage}</span>
+                                  {isReached && history[stageIdx]?.timestamp && (
+                                    <span className="text-[7px] text-white/30 mt-0.5">{new Date(history[stageIdx].timestamp).toLocaleDateString()}</span>
+                                  )}
+                                </div>
+                                {i < statusFlow.length - 1 && (
+                                  <div className={`flex-1 h-[1px] mx-1 mt-[-1.5rem] ${statusFlow.slice(0, i + 1).every(s => history.find(h => h.status === s)) ? 'bg-[#C5A880]' : 'bg-white/10'}`} />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                       
                       <div className="md:col-span-2 mt-4">
                         <span className="block text-[10px] text-white/40 uppercase tracking-widest mb-2 border-b border-white/10 pb-2">Items</span>

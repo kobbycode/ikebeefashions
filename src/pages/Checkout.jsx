@@ -14,6 +14,7 @@ const Checkout = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [orderId, setOrderId] = useState('');
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -77,7 +78,7 @@ const Checkout = () => {
         shipping: shippingFee,
         tax: tax,
         totalAmount: finalTotal,
-        status: 'paid',
+        status: 'pending',
         paymentMethod: 'paystack',
         createdAt: serverTimestamp(),
       };
@@ -129,6 +130,7 @@ const Checkout = () => {
       // We will leave the Service ID as a placeholder to be filled once obtained
       await emailjs.send('service_csylkvj', 'template_hgjfxad', emailParams, 'VBWEkwRY-kFE8tLyS');
       
+      setOrderId(docRef.id);
       setSuccess(true);
       clearCart();
       
@@ -138,7 +140,7 @@ const Checkout = () => {
       
     } catch (error) {
       console.error("Error creating order: ", error);
-      showAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger", "Order Error");
+      customAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
     } finally {
       setLoading(false);
     }
@@ -217,6 +219,7 @@ const Checkout = () => {
       
       await emailjs.send('service_csylkvj', 'template_hgjfxad', emailParams, 'VBWEkwRY-kFE8tLyS');
       
+      setOrderId(docRef.id);
       setSuccess(true);
       clearCart();
       
@@ -226,7 +229,7 @@ const Checkout = () => {
       
     } catch (error) {
       console.error("Error creating cash order: ", error);
-      showAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger", "Order Error");
+      customAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
     } finally {
       setLoading(false);
     }
@@ -238,6 +241,7 @@ const Checkout = () => {
   };
 
   if (success) {
+    const statusFlow = ['pending', 'packing', 'delivering', 'delivered'];
     return (
       <div className="min-h-screen pt-32 pb-20 px-margin-edge flex flex-col items-center justify-center bg-background">
         <motion.div 
@@ -247,10 +251,45 @@ const Checkout = () => {
         >
           <span className="material-symbols-outlined text-[80px] text-primary mb-8">check_circle</span>
           <h1 className="font-bodoni text-display-sm text-primary mb-6">Order Received</h1>
-          <p className="font-hanken text-body-lg text-on-surface-variant mb-12">
+          <p className="font-hanken text-body-lg text-on-surface-variant mb-6">
             Thank you for your purchase. Your order has been successfully placed and is now being processed. 
             We will send a confirmation email to {formData.email} shortly.
           </p>
+
+          {/* Order ID */}
+          {orderId && (
+            <p className="font-hanken text-xs text-on-surface-variant uppercase tracking-widest mb-10">
+              Order reference: <span className="text-secondary font-semibold">{orderId.slice(0, 8).toUpperCase()}</span>
+            </p>
+          )}
+
+          {/* Status Timeline for Customer */}
+          <div className="bg-surface/30 border border-primary/10 p-8 mb-10 text-left">
+            <h3 className="font-hanken text-[10px] uppercase tracking-widest text-primary mb-6 text-center">Order Progress</h3>
+            <div className="flex items-center gap-0 max-w-sm mx-auto">
+              {statusFlow.map((stage, i) => (
+                <div key={stage} className="flex items-center flex-1">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                      stage === 'pending' ? 'bg-secondary text-white ring-2 ring-secondary ring-offset-2 ring-offset-background' : 'bg-white/10 text-white/30'
+                    }`}>
+                      {stage === 'pending' ? '1' : i + 1}
+                    </div>
+                    <span className={`text-[9px] uppercase tracking-widest mt-2 whitespace-nowrap ${
+                      stage === 'pending' ? 'text-secondary' : 'text-white/30'
+                    }`}>{stage}</span>
+                  </div>
+                  {i < statusFlow.length - 1 && (
+                    <div className={`flex-1 h-[1px] mx-2 mt-[-1.5rem] ${stage === 'pending' ? 'bg-white/10' : 'bg-white/10'}`} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="font-hanken text-[10px] text-on-surface-variant text-center mt-6">
+              We will update this status as your order progresses. Check your email for updates.
+            </p>
+          </div>
+
           <Link to="/" className="inline-block px-12 py-4 bg-primary text-white font-hanken text-label-sm uppercase tracking-widest hover:bg-secondary transition-colors duration-300">
             Return to Homepage
           </Link>
