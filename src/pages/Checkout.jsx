@@ -2,19 +2,27 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../context/CartContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { db } from '../services/api';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../services/api';
+import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { PaystackButton } from 'react-paystack';
 import emailjs from '@emailjs/browser';
 import { useAlert } from '../context/AlertContext';
+import { useAuth } from '../context/AuthContext';
 
 const Checkout = () => {
   const { cart, cartTotal, clearCart } = useCart();
   const { showAlert } = useAlert();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [orderId, setOrderId] = useState('');
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [password, setPassword] = useState('');
+  const [accountError, setAccountError] = useState('');
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountCreated, setAccountCreated] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -80,10 +88,10 @@ const Checkout = () => {
         totalAmount: finalTotal,
         status: 'pending',
         paymentMethod: 'paystack',
+        userId: user?.uid || null,
         createdAt: serverTimestamp(),
       };
 
-      // Add to Firestore
       const docRef = await addDoc(collection(db, 'orders'), order);
       
       // Format items for EmailJS
@@ -168,12 +176,12 @@ const Checkout = () => {
         shipping: shippingFee,
         tax: tax,
         totalAmount: finalTotal,
-        status: 'pending', // Cash payments start as pending
+        status: 'pending',
         paymentMethod: 'cash_on_delivery',
+        userId: user?.uid || null,
         createdAt: serverTimestamp(),
       };
 
-      // Add to Firestore
       const docRef = await addDoc(collection(db, 'orders'), order);
       
       // Format items for EmailJS
@@ -235,9 +243,32 @@ const Checkout = () => {
     }
   };
 
+  const handleCreateAccount = async () => {
+    if (!password || password.length < 6) {
+      setAccountError('Password must be at least 6 characters.');
+      return;
+    }
+    setAccountError('');
+    setAccountLoading(true);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, formData.email, password);
+      if (orderId) {
+        await updateDoc(doc(db, 'orders', orderId), { userId: cred.user.uid });
+      }
+      setAccountCreated(true);
+    } catch (err) {
+      if (err.code === 'auth/email-already-in-use') {
+        setAccountError('An account with this email already exists. Please sign in.');
+      } else {
+        setAccountError(err.message);
+      }
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
   const handleFormSubmit = (e) => {
     e.preventDefault();
-    // Do nothing here, the PaystackButton handles the submit action via its onClick/onSuccess
   };
 
   if (success) {
@@ -290,8 +321,63 @@ const Checkout = () => {
             </p>
           </div>
 
-          <Link to="/" className="inline-block px-12 py-4 bg-primary text-white font-hanken text-label-sm uppercase tracking-widest hover:bg-secondary transition-colors duration-300">
-            Return to Homepage
+          {/* Account Creation for Guest Users */}
+          {!user && !accountCreated && !showPasswordForm && (
+            <div className="mb-10">
+              <button
+                onClick={() => setShowPasswordForm(true)}
+                className="w-full py-4 bg-secondary text-white font-hanken text-xs uppercase tracking-widest hover:bg-secondary/80 transition-colors"
+              >
+                Create Account to Track Orders
+              </button>
+              <p className="font-hanken text-[10px] text-on-surface-variant mt-3">
+                Set a password to access your order history and get real-time updates.
+              </p>
+            </div>
+          )}
+
+          {!user && !accountCreated && showPasswordForm && (
+            <div className="bg-surface/30 border border-primary/10 p-8 mb-10 text-left">
+              <h3 className="font-hanken text-[10px] uppercase tracking-widest text-primary mb-4">Create Your Password</h3>
+              <p className="font-hanken text-xs text-on-surface-variant mb-6">
+                Account will be created for <strong className="text-primary">{formData.email}</strong>
+              </p>
+              {accountError && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center p-3 mb-4 uppercase tracking-widest">
+                  {accountError}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Enter password (min 6 chars)"
+                  className="flex-1 bg-transparent border border-primary/20 px-4 py-3 text-primary text-sm focus:outline-none focus:border-secondary font-hanken"
+                />
+                <button
+                  onClick={handleCreateAccount}
+                  disabled={accountLoading}
+                  className="px-6 py-3 bg-secondary text-white font-hanken text-xs uppercase tracking-widest hover:bg-secondary/80 transition-colors whitespace-nowrap disabled:opacity-50"
+                >
+                  {accountLoading ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {accountCreated && (
+            <div className="bg-green-900/20 border border-green-500/30 p-6 mb-10 text-center">
+              <span className="material-symbols-outlined text-green-400 text-2xl mb-2">verified</span>
+              <p className="font-hanken text-xs text-green-400 uppercase tracking-widest font-semibold">Account Created!</p>
+              <p className="font-hanken text-[10px] text-green-300/70 mt-1">
+                You can now track your orders in real-time.
+              </p>
+            </div>
+          )}
+
+          <Link to={accountCreated ? '/account' : '/'} className="inline-block px-12 py-4 bg-primary text-white font-hanken text-label-sm uppercase tracking-widest hover:bg-secondary transition-colors duration-300">
+            {accountCreated ? 'Go to My Account' : 'Return to Homepage'}
           </Link>
         </motion.div>
       </div>

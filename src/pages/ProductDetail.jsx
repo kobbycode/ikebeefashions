@@ -176,7 +176,7 @@ const ProductDetail = () => {
               <div className="mb-8">
                 <div className="flex justify-between items-center mb-4">
                   <span className="font-hanken text-label-sm text-primary uppercase tracking-widest">Select Size</span>
-                  <button onClick={() => setShowSizeGuide(true)} className="font-hanken text-label-sm text-secondary underline underline-offset-2">Size Guide</button>
+                  <button onClick={() => setShowSizeGuide(true)} className="font-hanken text-label-sm text-secondary underline underline-offset-2 cursor-pointer">Size Guide</button>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {product.sizes.map((size) => (
@@ -333,7 +333,7 @@ const ProductDetail = () => {
                 <p className="font-hanken text-xs text-on-surface-variant leading-relaxed">
                   <strong className="text-primary">Custom sizing</strong> is available for all pieces. 
                   Select <strong>Custom</strong> above and we will reach out to take your exact measurements. 
-                  For additional fit questions, <button className="text-secondary underline underline-offset-2">contact our team</button>.
+                  For additional fit questions, <a href="https://wa.me/233541928675" target="_blank" rel="noopener noreferrer" className="text-secondary underline underline-offset-2 cursor-pointer">contact our team</a>.
                 </p>
               </div>
             </motion.div>

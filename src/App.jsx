@@ -13,6 +13,8 @@ import NotFound from './pages/NotFound';
 import ProductDetail from './pages/ProductDetail';
 import Admin from './pages/Admin';
 import Checkout from './pages/Checkout';
+import Account from './pages/Account';
+import Login from './pages/Login';
 import Splash from './components/Splash';
 import {
   Sustainability,
@@ -24,6 +26,7 @@ import {
 import PageTransition from './components/PageTransition';
 import { CartProvider } from './context/CartContext';
 import { AlertProvider } from './context/AlertContext';
+import { AuthProvider } from './context/AuthContext';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -44,6 +47,8 @@ const AnimatedRoutes = () => {
           <Route path="/privacy"              element={<Privacy />} />
           <Route path="/terms"               element={<Terms />} />
           <Route path="/admin"               element={<Admin />} />
+          <Route path="/account"             element={<Account />} />
+          <Route path="/login"               element={<Login />} />
           {/* Catch-all 404 */}
           <Route path="*"                    element={<NotFound />} />
         </Routes>
@@ -58,20 +63,22 @@ function App() {
   return (
     <CartProvider>
       <Router>
-        <AlertProvider>
-          <SmoothScroll>
-            <ScrollToTop />
-            <AnimatePresence mode="wait">
-              {showSplash ? (
-                <Splash key="splash" onComplete={() => setShowSplash(false)} />
-              ) : (
-                <Layout key="layout">
-                  <AnimatedRoutes />
-                </Layout>
-              )}
-            </AnimatePresence>
-          </SmoothScroll>
-        </AlertProvider>
+        <AuthProvider>
+          <AlertProvider>
+            <SmoothScroll>
+              <ScrollToTop />
+              <AnimatePresence mode="wait">
+                {showSplash ? (
+                  <Splash key="splash" onComplete={() => setShowSplash(false)} />
+                ) : (
+                  <Layout key="layout">
+                    <AnimatedRoutes />
+                  </Layout>
+                )}
+              </AnimatePresence>
+            </SmoothScroll>
+          </AlertProvider>
+        </AuthProvider>
       </Router>
     </CartProvider>
   );

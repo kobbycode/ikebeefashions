@@ -49,7 +49,14 @@ const Navbar = () => {
           </Link>
 
           {/* Right Controls */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
+            <Link
+              to="/account"
+              className="text-primary hover:text-secondary transition-colors duration-300 hidden md:block"
+              aria-label="My Account"
+            >
+              <span className="material-symbols-outlined">person</span>
+            </Link>
             <button 
               onClick={() => setIsCartOpen(true)} 
               className="relative group text-primary p-2 hover:text-secondary transition-colors duration-300"
