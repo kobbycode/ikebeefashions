@@ -23,6 +23,7 @@ import {
 } from './pages/UtilityPages';
 import PageTransition from './components/PageTransition';
 import { CartProvider } from './context/CartContext';
+import { AlertProvider } from './context/AlertContext';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -57,18 +58,20 @@ function App() {
   return (
     <CartProvider>
       <Router>
-        <SmoothScroll>
-          <ScrollToTop />
-          <AnimatePresence mode="wait">
-            {showSplash ? (
-              <Splash key="splash" onComplete={() => setShowSplash(false)} />
-            ) : (
-              <Layout key="layout">
-                <AnimatedRoutes />
-              </Layout>
-            )}
-          </AnimatePresence>
-        </SmoothScroll>
+        <AlertProvider>
+          <SmoothScroll>
+            <ScrollToTop />
+            <AnimatePresence mode="wait">
+              {showSplash ? (
+                <Splash key="splash" onComplete={() => setShowSplash(false)} />
+              ) : (
+                <Layout key="layout">
+                  <AnimatedRoutes />
+                </Layout>
+              )}
+            </AnimatePresence>
+          </SmoothScroll>
+        </AlertProvider>
       </Router>
     </CartProvider>
   );

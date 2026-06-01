@@ -5,6 +5,7 @@ import { useProducts, formatGHS } from '../hooks/useProducts';
 import { sendInquiryRequest } from '../services/api';
 import { useCart } from '../context/CartContext';
 import LazyImage from '../components/LazyImage';
+import { useAlert } from '../context/AlertContext';
 
 const ProductDetail = () => {
   const { slug } = useParams();
@@ -12,9 +13,11 @@ const ProductDetail = () => {
   const { products, getProductBySlug, loading } = useProducts();
   const product = getProductBySlug(slug);
 
+  const { showAlert } = useAlert();
   const { addToCart, setIsCartOpen } = useCart();
   const [selectedSize, setSelectedSize] = useState('');
   const [activeImg, setActiveImg] = useState(0);
+  const [showSizeGuide, setShowSizeGuide] = useState(false);
 
   if (loading) {
     return (
@@ -37,9 +40,9 @@ const ProductDetail = () => {
 
   const related = products.filter(p => p.category === product.category && p.id !== product.id).slice(0, 3);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!selectedSize) {
-      alert('Please select a size before adding to your bag.');
+      await showAlert('Please select a size before adding to your bag.', 'warning', 'Size Required');
       return;
     }
     
@@ -173,7 +176,7 @@ const ProductDetail = () => {
               <div className="mb-8">
                 <div className="flex justify-between items-center mb-4">
                   <span className="font-hanken text-label-sm text-primary uppercase tracking-widest">Select Size</span>
-                  <button className="font-hanken text-label-sm text-secondary underline underline-offset-2">Size Guide</button>
+                  <button onClick={() => setShowSizeGuide(true)} className="font-hanken text-label-sm text-secondary underline underline-offset-2">Size Guide</button>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {product.sizes.map((size) => (
@@ -273,6 +276,70 @@ const ProductDetail = () => {
           </div>
         </section>
       )}
+
+      {/* Size Guide Modal */}
+      <AnimatePresence>
+        {showSizeGuide && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowSizeGuide(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto relative"
+              onClick={e => e.stopPropagation()}
+            >
+              <button onClick={() => setShowSizeGuide(false)} className="absolute top-4 right-4 text-primary/50 hover:text-primary transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+
+              <h2 className="font-bodoni text-headline-md text-primary mb-6">Size Guide</h2>
+
+              <div className="overflow-x-auto mb-8">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-primary/20 text-primary/60 text-[10px] uppercase tracking-widest">
+                      <th className="pb-3 pr-4 font-hanken">Size</th>
+                      <th className="pb-3 pr-4 font-hanken">Bust (cm)</th>
+                      <th className="pb-3 pr-4 font-hanken">Waist (cm)</th>
+                      <th className="pb-3 font-hanken">Hips (cm)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { size: 'XS', bust: '81-84', waist: '61-64', hips: '89-91' },
+                      { size: 'S', bust: '86-89', waist: '66-69', hips: '94-97' },
+                      { size: 'M', bust: '91-94', waist: '71-74', hips: '99-102' },
+                      { size: 'L', bust: '97-102', waist: '76-81', hips: '104-109' },
+                      { size: 'XL', bust: '107-112', waist: '84-89', hips: '112-117' },
+                    ].map((row) => (
+                      <tr key={row.size} className="border-b border-primary/10">
+                        <td className="py-3 pr-4 font-hanken text-sm font-semibold text-primary">{row.size}</td>
+                        <td className="py-3 pr-4 font-hanken text-sm text-on-surface-variant">{row.bust}</td>
+                        <td className="py-3 pr-4 font-hanken text-sm text-on-surface-variant">{row.waist}</td>
+                        <td className="py-3 font-hanken text-sm text-on-surface-variant">{row.hips}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-primary/5 p-4 rounded-sm">
+                <p className="font-hanken text-xs text-on-surface-variant leading-relaxed">
+                  <strong className="text-primary">Custom sizing</strong> is available for all pieces. 
+                  Select <strong>Custom</strong> above and we will reach out to take your exact measurements. 
+                  For additional fit questions, <button className="text-secondary underline underline-offset-2">contact our team</button>.
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

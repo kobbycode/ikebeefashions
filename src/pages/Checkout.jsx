@@ -6,25 +6,11 @@ import { db } from '../services/api';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { PaystackButton } from 'react-paystack';
 import emailjs from '@emailjs/browser';
-import AdminAlert from '../components/AdminAlert';
+import { useAlert } from '../context/AlertContext';
 
 const Checkout = () => {
   const { cart, cartTotal, clearCart } = useCart();
-  const [alertConfig, setAlertConfig] = useState(null);
-
-  const customAlert = (message, type = 'info') => {
-    return new Promise((resolve) => {
-      setAlertConfig({
-        message,
-        type,
-        isConfirm: false,
-        onConfirm: () => {
-          setAlertConfig(null);
-          resolve(true);
-        }
-      });
-    });
-  };
+  const { showAlert } = useAlert();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -61,7 +47,7 @@ const Checkout = () => {
     publicKey,
     text: `PAY GHS ${finalTotal.toFixed(2)}`,
     onSuccess: () => handleSuccessPayment(),
-    onClose: () => customAlert("Payment canceled. Your order has not been placed.", "danger"),
+    onClose: () => showAlert("Payment canceled. Your order has not been placed.", "danger", "Payment Canceled"),
   };
 
   const handleChange = (e) => {
@@ -152,7 +138,7 @@ const Checkout = () => {
       
     } catch (error) {
       console.error("Error creating order: ", error);
-      customAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
+      showAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger", "Order Error");
     } finally {
       setLoading(false);
     }
@@ -240,7 +226,7 @@ const Checkout = () => {
       
     } catch (error) {
       console.error("Error creating cash order: ", error);
-      customAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
+      showAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger", "Order Error");
     } finally {
       setLoading(false);
     }
@@ -296,7 +282,6 @@ const Checkout = () => {
 
   return (
     <div className="min-h-screen bg-background pt-32 pb-20 px-margin-edge font-hanken">
-      <AdminAlert config={alertConfig} />
       <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-16 lg:gap-24">
         
         {/* Left Form Section */}

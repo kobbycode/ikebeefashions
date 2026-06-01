@@ -6,7 +6,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth, storage, loginAdmin, logoutAdmin } from '../services/api';
 import { products as localProducts } from '../data/products';
 import { where } from 'firebase/firestore';
-import AdminAlert from '../components/AdminAlert';
+import { useAlert } from '../context/AlertContext';
 
 const Admin = () => {
   const [user, setUser] = useState(null);
@@ -34,40 +34,10 @@ const Admin = () => {
   // Request Details Modal State
   const [selectedRequest, setSelectedRequest] = useState(null);
 
-  // Custom Alert State
-  const [alertConfig, setAlertConfig] = useState(null);
+  // Mass Selection State
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
 
-  const customAlert = (message, type = 'info') => {
-    return new Promise((resolve) => {
-      setAlertConfig({
-        message,
-        type,
-        isConfirm: false,
-        onConfirm: () => {
-          setAlertConfig(null);
-          resolve(true);
-        }
-      });
-    });
-  };
-
-  const customConfirm = (message, type = 'warning') => {
-    return new Promise((resolve) => {
-      setAlertConfig({
-        message,
-        type,
-        isConfirm: true,
-        onConfirm: () => {
-          setAlertConfig(null);
-          resolve(true);
-        },
-        onCancel: () => {
-          setAlertConfig(null);
-          resolve(false);
-        }
-      });
-    });
-  };
+  const { showAlert: customAlert, showConfirm: customConfirm } = useAlert();
 
   // Auth Listener
   useEffect(() => {
@@ -277,6 +247,38 @@ const Admin = () => {
     }
   };
 
+  const toggleOrderSelection = (id) => {
+    setSelectedOrderIds(prev =>
+      prev.includes(id) ? prev.filter(oid => oid !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllOrders = () => {
+    if (selectedOrderIds.length === data.orders.length) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(data.orders.map(o => o.id));
+    }
+  };
+
+  const handleDeleteSelectedOrders = async () => {
+    if (selectedOrderIds.length === 0) return;
+    const isConfirmed = await customConfirm(
+      `Are you sure you want to permanently delete ${selectedOrderIds.length} order(s)?`,
+      "danger"
+    );
+    if (!isConfirmed) return;
+    try {
+      await Promise.all(selectedOrderIds.map(id => deleteDoc(doc(db, 'orders', id))));
+      await customAlert(`Successfully deleted ${selectedOrderIds.length} order(s).`, "success");
+      setSelectedOrderIds([]);
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting orders:", error);
+      await customAlert("Failed to delete some orders.", "danger");
+    }
+  };
+
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Just now';
     const date = timestamp.toDate();
@@ -334,7 +336,6 @@ const Admin = () => {
   // Admin Dashboard
   return (
     <div className="min-h-screen bg-[#111111] text-white pt-16 px-6 md:px-12 font-sans relative">
-      <AdminAlert config={alertConfig} />
       <div className="max-w-[1400px] mx-auto">
         
         {/* Header */}
@@ -604,10 +605,34 @@ const Admin = () => {
                 No records found.
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {activeTab === 'orders' && selectedOrderIds.length > 0 && (
+                  <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/10">
+                    <span className="text-xs text-white/60 uppercase tracking-widest">
+                      {selectedOrderIds.length} order(s) selected
+                    </span>
+                    <button
+                      onClick={handleDeleteSelectedOrders}
+                      className="px-4 py-2 border border-red-500/50 text-red-400 text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition-colors"
+                    >
+                      Delete Selected
+                    </button>
+                  </div>
+                )}
+                <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-white/20 text-white/60 text-[10px] uppercase tracking-widest">
+                      {activeTab === 'orders' && (
+                        <th className="pb-4 font-normal w-8">
+                          <input
+                            type="checkbox"
+                            checked={data.orders.length > 0 && selectedOrderIds.length === data.orders.length}
+                            onChange={toggleSelectAllOrders}
+                            className="accent-[#C5A880] w-4 h-4 cursor-pointer"
+                          />
+                        </th>
+                      )}
                       <th className="pb-4 font-normal">Date</th>
                       {activeTab === 'orders' && (
                         <>
@@ -645,8 +670,18 @@ const Admin = () => {
                       <motion.tr 
                         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
                         key={item.id} 
-                        className="border-b border-white/5 hover:bg-white/5 transition-colors group"
+                        className={`border-b border-white/5 transition-colors group ${selectedOrderIds.includes(item.id) ? 'bg-[#C5A880]/10' : 'hover:bg-white/5'}`}
                       >
+                        {activeTab === 'orders' && (
+                          <td className="py-5 w-8">
+                            <input
+                              type="checkbox"
+                              checked={selectedOrderIds.includes(item.id)}
+                              onChange={() => toggleOrderSelection(item.id)}
+                              className="accent-[#C5A880] w-4 h-4 cursor-pointer"
+                            />
+                          </td>
+                        )}
                         <td className="py-5 text-xs text-white/80">{formatDate(item.createdAt || item.subscribedAt)}</td>
                         
                         {activeTab === 'orders' && (
@@ -699,6 +734,7 @@ const Admin = () => {
                   </tbody>
                 </table>
               </div>
+            </>
             )}
           </div>
         )}
