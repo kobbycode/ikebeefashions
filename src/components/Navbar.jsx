@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useRef, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
+import { useAlert } from '../context/AlertContext';
+import { NotificationBell } from '../utils/notifications';
 
 const navLinks = [
   { to: '/collection', label: 'Collection' },
@@ -12,8 +15,37 @@ const navLinks = [
 
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef(null);
   const { isCartOpen, setIsCartOpen, cart, cartCount, removeFromCart, updateQuantity, cartTotal } = useCart();
+  const { user, logout } = useAuth();
+  const { showConfirm } = useAlert();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    const confirmed = await showConfirm('Are you sure you want to sign out?', 'warning', 'Sign Out');
+    if (!confirmed) return;
+    await logout();
+    setAccountOpen(false);
+    setMobileOpen(false);
+    navigate('/');
+  };
+
+  const handleNotificationClick = (n) => {
+    const target = n.orderId ? `/account?order=${n.orderId}` : '/account';
+    navigate(target);
+  };
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (accountRef.current && !accountRef.current.contains(e.target)) {
+        setAccountOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   return (
     <>
@@ -49,14 +81,68 @@ const Navbar = () => {
           </Link>
 
           {/* Right Controls */}
-          <div className="flex items-center gap-4">
-            <Link
-              to="/account"
-              className="text-primary hover:text-secondary transition-colors duration-300 hidden md:block"
-              aria-label="My Account"
-            >
-              <span className="material-symbols-outlined">person</span>
-            </Link>
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
+            {user && <NotificationBell recipientId={user.uid} recipientType="customer" onNotificationClick={handleNotificationClick} />}
+            <div className="relative" ref={accountRef}>
+              <button
+                onClick={() => setAccountOpen(prev => !prev)}
+                className="text-primary hover:text-secondary transition-colors duration-300"
+                aria-label="My Account"
+              >
+                <span className="material-symbols-outlined">person</span>
+              </button>
+              <AnimatePresence>
+                {accountOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    className="absolute right-0 top-full mt-2 w-56 bg-background border border-primary/10 shadow-xl z-[200]"
+                  >
+                    {user ? (
+                      <>
+                        <div className="px-5 py-4 border-b border-primary/10">
+                          <p className="font-hanken text-xs font-semibold text-primary">My Account</p>
+                          <p className="font-hanken text-[10px] text-on-surface-variant mt-0.5 truncate">{user.email}</p>
+                        </div>
+                        <Link
+                          to="/account"
+                          onClick={() => setAccountOpen(false)}
+                          className="block px-5 py-3 font-hanken text-xs text-primary hover:bg-surface/50 transition-colors"
+                        >
+                          Order History
+                        </Link>
+                        <button
+                          onClick={handleLogout}
+                          className="block w-full text-left px-5 py-3 font-hanken text-xs text-red-400 hover:bg-surface/50 transition-colors"
+                        >
+                          Logout
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <Link
+                          to="/login"
+                          state={{ register: false }}
+                          onClick={() => setAccountOpen(false)}
+                          className="block px-5 py-4 font-hanken text-xs text-primary hover:bg-surface/50 transition-colors"
+                        >
+                          Sign In
+                        </Link>
+                        <Link
+                          to="/login"
+                          state={{ register: true }}
+                          onClick={() => setAccountOpen(false)}
+                          className="block px-5 py-4 font-hanken text-xs text-primary hover:bg-surface/50 transition-colors border-t border-primary/10"
+                        >
+                          Create Account
+                        </Link>
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <button 
               onClick={() => setIsCartOpen(true)} 
               className="relative group text-primary p-2 hover:text-secondary transition-colors duration-300"
@@ -144,8 +230,43 @@ const Navbar = () => {
                 })}
               </nav>
 
+              {/* Drawer Account */}
+              <div className="pt-8 border-t border-primary/10 space-y-4">
+                {user ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <p className="font-hanken text-xs text-on-surface-variant truncate">{user.email}</p>
+                      <NotificationBell recipientId={user.uid} recipientType="customer" onNotificationClick={handleNotificationClick} />
+                    </div>
+                    <Link
+                      to="/account"
+                      onClick={() => setMobileOpen(false)}
+                      className="font-bodoni text-headline-md text-primary hover:text-secondary transition-colors duration-300 flex items-center gap-3"
+                    >
+                      <span className="material-symbols-outlined">person</span>
+                      Order History
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="font-hanken text-xs text-red-400 hover:text-red-300 transition-colors uppercase tracking-widest"
+                    >
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <Link
+                    to="/login"
+                    onClick={() => setMobileOpen(false)}
+                    className="font-bodoni text-headline-md text-primary hover:text-secondary transition-colors duration-300 flex items-center gap-3"
+                  >
+                    <span className="material-symbols-outlined">person</span>
+                    Sign In / Register
+                  </Link>
+                )}
+              </div>
+
               {/* Drawer Footer */}
-              <div className="mt-auto pt-16 border-t border-primary/10">
+              <div className="mt-auto pt-8 border-t border-primary/10">
                 <p className="font-hanken text-label-sm text-on-surface-variant tracking-widest uppercase">
                   Crafted in Accra
                 </p>

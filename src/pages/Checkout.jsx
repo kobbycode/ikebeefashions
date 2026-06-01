@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../context/CartContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -9,6 +9,11 @@ import { PaystackButton } from 'react-paystack';
 import emailjs from '@emailjs/browser';
 import { useAlert } from '../context/AlertContext';
 import { useAuth } from '../context/AuthContext';
+import { playChime } from '../utils/notification';
+import { createNotification } from '../utils/notifications';
+import { validateEmail, validatePhone } from '../utils/validation';
+
+const SAVED_DETAILS_KEY = 'ikebee_checkout_details';
 
 const Checkout = () => {
   const { cart, cartTotal, clearCart } = useCart();
@@ -23,23 +28,43 @@ const Checkout = () => {
   const [accountError, setAccountError] = useState('');
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountCreated, setAccountCreated] = useState(false);
-  const [formData, setFormData] = useState({
-    email: '',
-    firstName: '',
-    lastName: '',
-    address: '',
-    apartment: '',
-    city: '',
-    country: '',
-    postalCode: '',
-    phone: '',
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [saveDetails, setSaveDetails] = useState(true);
+  const [formData, setFormData] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SAVED_DETAILS_KEY) || 'null');
+      if (saved) {
+        const { email, name, address, apartment, city, country, postalCode, phone } = saved;
+        return {
+          email: email || '',
+          firstName: name || '',
+          address: address || '',
+          apartment: apartment || '',
+          city: city || '',
+          country: country || '',
+          postalCode: postalCode || '',
+          phone: phone || '',
+        };
+      }
+    } catch {}
+    return {
+      email: '',
+      firstName: '',
+      address: '',
+      apartment: '',
+      city: '',
+      country: '',
+      postalCode: '',
+      phone: '',
+    };
   });
-  const [paymentMethod, setPaymentMethod] = useState('paystack'); // 'paystack' or 'cash'
+  const [paymentMethod, setPaymentMethod] = useState('paystack');
 
   const shippingFee = formData.country ? (formData.country === 'GH' ? 50 : 300) : 0;
   const tax = cartTotal * 0.05;
   const finalTotal = cartTotal + shippingFee + tax;
-  const isFormValid = formData.email && formData.firstName && formData.lastName && formData.address && formData.city && formData.country && formData.postalCode && formData.phone;
+  const isFormValid = formData.email && formData.firstName && formData.address && formData.city && formData.country && formData.postalCode && formData.phone && Object.keys(fieldErrors).length === 0;
 
   // Paystack Configuration
   const publicKey = "pk_test_d8a8767f70b799e0df3e488102377c8efb471ba4"; // Replace with real public key
@@ -50,7 +75,7 @@ const Checkout = () => {
     amount,
     currency: "GHS",
     metadata: {
-      name: `${formData.firstName} ${formData.lastName}`,
+      name: formData.firstName,
       phone: formData.phone,
     },
     publicKey,
@@ -62,6 +87,11 @@ const Checkout = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
   };
 
   const handleSuccessPayment = async () => {
@@ -73,7 +103,6 @@ const Checkout = () => {
         customerInfo: {
           email: formData.email,
           firstName: formData.firstName,
-          lastName: formData.lastName,
           address: formData.address,
           apartment: formData.apartment,
           city: formData.city,
@@ -140,11 +169,31 @@ const Checkout = () => {
       
       setOrderId(docRef.id);
       setSuccess(true);
+      playChime();
+      createNotification({
+        type: 'new_order',
+        message: `New order #${docRef.id.slice(0, 8).toUpperCase()} — ${formData.firstName}`,
+        recipientId: 'admin',
+        recipientType: 'admin',
+        orderId: docRef.id,
+        customerName: formData.firstName,
+        amount: finalTotal,
+      });
+      if (user?.uid) {
+        createNotification({
+          type: 'new_order',
+          message: `Order #${docRef.id.slice(0, 8).toUpperCase()} placed successfully`,
+          recipientId: user.uid,
+          recipientType: 'customer',
+          orderId: docRef.id,
+        });
+      }
       clearCart();
+      persistDetails();
       
       setTimeout(() => {
         navigate('/');
-      }, 5000);
+      }, 7000);
       
     } catch (error) {
       console.error("Error creating order: ", error);
@@ -163,7 +212,6 @@ const Checkout = () => {
         customerInfo: {
           email: formData.email,
           firstName: formData.firstName,
-          lastName: formData.lastName,
           address: formData.address,
           apartment: formData.apartment,
           city: formData.city,
@@ -229,11 +277,31 @@ const Checkout = () => {
       
       setOrderId(docRef.id);
       setSuccess(true);
+      playChime();
+      createNotification({
+        type: 'new_order',
+        message: `New order #${docRef.id.slice(0, 8).toUpperCase()} — ${formData.firstName}`,
+        recipientId: 'admin',
+        recipientType: 'admin',
+        orderId: docRef.id,
+        customerName: formData.firstName,
+        amount: finalTotal,
+      });
+      if (user?.uid) {
+        createNotification({
+          type: 'new_order',
+          message: `Order #${docRef.id.slice(0, 8).toUpperCase()} placed successfully`,
+          recipientId: user.uid,
+          recipientType: 'customer',
+          orderId: docRef.id,
+        });
+      }
       clearCart();
+      persistDetails();
       
       setTimeout(() => {
         navigate('/');
-      }, 5000);
+      }, 7000);
       
     } catch (error) {
       console.error("Error creating cash order: ", error);
@@ -254,6 +322,13 @@ const Checkout = () => {
       const cred = await createUserWithEmailAndPassword(auth, formData.email, password);
       if (orderId) {
         await updateDoc(doc(db, 'orders', orderId), { userId: cred.user.uid });
+        createNotification({
+          type: 'new_order',
+          message: `Order #${orderId.slice(0, 8).toUpperCase()} placed successfully`,
+          recipientId: cred.user.uid,
+          recipientType: 'customer',
+          orderId: orderId,
+        });
       }
       setAccountCreated(true);
     } catch (err) {
@@ -267,8 +342,109 @@ const Checkout = () => {
     }
   };
 
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      setFieldErrors(prev => ({ ...prev, address: 'Geolocation is not supported by your browser.' }));
+      return;
+    }
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`,
+            { headers: { 'Accept-Language': 'en' } }
+          );
+          const data = await res.json();
+          const addr = data.address || {};
+          const parts = (data.display_name || '').split(',').map(s => s.trim());
+          const street = [addr.house_number, addr.road || addr.pedestrian].filter(Boolean).join(' ');
+          setFormData(prev => ({
+            ...prev,
+            address: street || parts.slice(0, 2).join(', ') || prev.address,
+            city: addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.county || prev.city,
+            country: getCountryFromAddr(addr.country_code) || prev.country,
+            postalCode: addr.postcode || prev.postalCode,
+          }));
+          setFieldErrors(prev => {
+            const next = { ...prev };
+            delete next.address; delete next.city; delete next.country; delete next.postalCode;
+            return next;
+          });
+        } catch {
+          setFieldErrors(prev => ({ ...prev, address: 'Could not retrieve address from location.' }));
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      () => {
+        setLocationLoading(false);
+        setFieldErrors(prev => ({ ...prev, address: 'Location access denied or unavailable.' }));
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const getCountryFromAddr = (code) => {
+    if (!code) return '';
+    const map = { gb: 'UK', gh: 'GH', us: 'US', ca: 'CA', au: 'AU' };
+    return map[code.toLowerCase()] || code.toUpperCase();
+  };
+
+  const persistDetails = () => {
+    if (!saveDetails) {
+      localStorage.removeItem(SAVED_DETAILS_KEY);
+      return;
+    }
+    const data = {
+      email: formData.email,
+      name: formData.firstName,
+      address: formData.address,
+      apartment: formData.apartment,
+      city: formData.city,
+      country: formData.country,
+      postalCode: formData.postalCode,
+      phone: formData.phone,
+    };
+    localStorage.setItem(SAVED_DETAILS_KEY, JSON.stringify(data));
+  };
+
+  const getCountryCode = (country) => {
+    const map = { US: 'US', UK: 'GB', GH: 'GH', CA: 'CA', AU: 'AU' };
+    return map[country] || '';
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    const emailErr = validateEmail(formData.email);
+    if (emailErr) errors.email = emailErr;
+    const phoneErr = validatePhone(formData.phone, getCountryCode(formData.country));
+    if (phoneErr) errors.phone = phoneErr;
+    if (!formData.firstName) errors.firstName = 'Name is required.';
+    if (!formData.address) errors.address = 'Address is required.';
+    if (!formData.city) errors.city = 'City is required.';
+    if (!formData.country) errors.country = 'Country is required.';
+    if (!formData.postalCode) errors.postalCode = 'Postal code is required.';
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleFormSubmit = (e) => {
     e.preventDefault();
+    validateForm();
+  };
+
+  const handlePayClick = (e) => {
+    if (!validateForm()) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const handleCashClick = (e) => {
+    if (!validateForm()) return;
+    handleCashPayment();
   };
 
   if (success) {
@@ -430,8 +606,9 @@ const Checkout = () => {
                   onChange={handleChange}
                   placeholder="Email address" 
                   required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
+                  className={`w-full bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md ${fieldErrors.email ? 'border-red-500' : 'border-primary/20'}`}
                 />
+                {fieldErrors.email && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.email}</p>}
               </div>
               <div className="mb-4">
                 <input 
@@ -441,46 +618,57 @@ const Checkout = () => {
                   onChange={handleChange}
                   placeholder="Phone number" 
                   required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
+                  className={`w-full bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md ${fieldErrors.phone ? 'border-red-500' : 'border-primary/20'}`}
                 />
+                {fieldErrors.phone && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.phone}</p>}
               </div>
             </section>
 
             {/* Shipping Section */}
             <section>
-              <h3 className="text-label-lg text-primary uppercase tracking-widest mb-6 border-b border-primary/20 pb-2">Shipping Address</h3>
+              <h3 className="text-label-lg text-primary uppercase tracking-widest mb-6 border-b border-primary/20 pb-2">Shipping Details</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="mb-4">
                 <input 
                   type="text" 
                   name="firstName"
                   value={formData.firstName}
                   onChange={handleChange}
-                  placeholder="First name" 
+                  placeholder="Name" 
                   required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
+                  className={`w-full bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md ${fieldErrors.firstName ? 'border-red-500' : 'border-primary/20'}`}
                 />
-                <input 
-                  type="text" 
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  placeholder="Last name" 
-                  required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
-                />
+                {fieldErrors.firstName && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.firstName}</p>}
               </div>
 
               <div className="mb-4">
-                <input 
-                  type="text" 
-                  name="address"
-                  value={formData.address}
-                  onChange={handleChange}
-                  placeholder="Address" 
-                  required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
-                />
+                <div className="flex gap-2 items-start">
+                  <div className="flex-1 relative">
+                    <input 
+                      type="text" 
+                      name="address"
+                      value={formData.address}
+                      onChange={handleChange}
+                      placeholder="Location / Address" 
+                      required
+                      className={`w-full bg-transparent border p-4 pr-12 outline-none focus:border-primary transition-colors font-hanken text-body-md ${fieldErrors.address ? 'border-red-500' : 'border-primary/20'}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGetLocation}
+                      disabled={locationLoading}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-on-surface-variant hover:text-primary transition-colors disabled:opacity-50"
+                      title="Get current location"
+                    >
+                      {locationLoading ? (
+                        <span className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                      ) : (
+                        <span className="material-symbols-outlined text-lg">my_location</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {fieldErrors.address && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.address}</p>}
               </div>
 
               <div className="mb-4">
@@ -495,39 +683,61 @@ const Checkout = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <input 
-                  type="text" 
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
-                  placeholder="City" 
-                  required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
+                <div>
+                  <input 
+                    type="text" 
+                    name="city"
+                    value={formData.city}
+                    onChange={handleChange}
+                    placeholder="City" 
+                    required
+                    className={`w-full bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md ${fieldErrors.city ? 'border-red-500' : 'border-primary/20'}`}
+                  />
+                  {fieldErrors.city && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.city}</p>}
+                </div>
+                <div>
+                  <select 
+                    name="country"
+                    value={formData.country}
+                    onChange={handleChange}
+                    required
+                    className={`w-full bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md appearance-none ${fieldErrors.country ? 'border-red-500' : 'border-primary/20'}`}
+                  >
+                    <option value="" disabled>Country</option>
+                    <option value="US">United States</option>
+                    <option value="UK">United Kingdom</option>
+                    <option value="GH">Ghana</option>
+                    <option value="CA">Canada</option>
+                    <option value="AU">Australia</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                  {fieldErrors.country && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.country}</p>}
+                </div>
+                <div>
+                  <input 
+                    type="text" 
+                    name="postalCode"
+                    value={formData.postalCode}
+                    onChange={handleChange}
+                    placeholder="Postal code" 
+                    required
+                    className={`w-full bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md ${fieldErrors.postalCode ? 'border-red-500' : 'border-primary/20'}`}
+                  />
+                  {fieldErrors.postalCode && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{fieldErrors.postalCode}</p>}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 mt-6 pt-2 border-t border-primary/10">
+                <input
+                  type="checkbox"
+                  id="saveDetails"
+                  checked={saveDetails}
+                  onChange={e => setSaveDetails(e.target.checked)}
+                  className="appearance-none w-4 h-4 border border-primary/40 bg-transparent checked:bg-secondary checked:border-secondary cursor-pointer shrink-0 mt-0.5"
                 />
-                <select 
-                  name="country"
-                  value={formData.country}
-                  onChange={handleChange}
-                  required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md appearance-none"
-                >
-                  <option value="" disabled>Country</option>
-                  <option value="US">United States</option>
-                  <option value="UK">United Kingdom</option>
-                  <option value="GH">Ghana</option>
-                  <option value="CA">Canada</option>
-                  <option value="AU">Australia</option>
-                  <option value="OTHER">Other</option>
-                </select>
-                <input 
-                  type="text" 
-                  name="postalCode"
-                  value={formData.postalCode}
-                  onChange={handleChange}
-                  placeholder="Postal code" 
-                  required
-                  className="w-full bg-transparent border border-primary/20 p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md"
-                />
+                <label htmlFor="saveDetails" className="font-hanken text-xs text-on-surface-variant cursor-pointer select-none">
+                  Save my details for next time
+                </label>
               </div>
             </section>
 
@@ -569,15 +779,17 @@ const Checkout = () => {
                 </div>
               ) : paymentMethod === 'paystack' ? (
                 <div className={!isFormValid ? "opacity-50 pointer-events-none" : ""}>
-                  <PaystackButton 
-                    {...componentProps}
-                    className="w-full py-5 bg-primary text-white font-hanken text-label-md uppercase tracking-widest hover:bg-secondary transition-colors duration-300 flex items-center justify-center gap-2"
-                  />
+                  <div onClick={handlePayClick}>
+                    <PaystackButton 
+                      {...componentProps}
+                      className="w-full py-5 bg-primary text-white font-hanken text-label-md uppercase tracking-widest hover:bg-secondary transition-colors duration-300 flex items-center justify-center gap-2"
+                    />
+                  </div>
                 </div>
               ) : (
                 <button 
                   type="button"
-                  onClick={handleCashPayment}
+                  onClick={handleCashClick}
                   disabled={!isFormValid}
                   className={`w-full py-5 text-white font-hanken text-label-md uppercase tracking-widest transition-colors duration-300 flex items-center justify-center gap-2 ${isFormValid ? 'bg-primary hover:bg-secondary' : 'bg-primary/50 cursor-not-allowed'}`}
                 >

@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 // Firebase configuration using environment variables
@@ -21,6 +21,7 @@ export const db = getFirestore(app);
 
 // Initialize Authentication
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence);
 
 // Initialize Cloud Storage
 export const storage = getStorage(app);

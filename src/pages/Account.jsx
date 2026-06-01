@@ -1,29 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { playChime } from '../utils/notification';
+import { useAlert } from '../context/AlertContext';
 
 const statusFlow = ['pending', 'packing', 'delivering', 'delivered'];
-
-const playChime = () => {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.8);
-  } catch (e) {
-    // Audio not available
-  }
-};
 
 const formatDate = (timestamp) => {
   if (!timestamp) return '';
@@ -64,10 +48,28 @@ const Timeline = ({ statusHistory = [], status }) => {
 const Account = () => {
   const { user, loading: authLoading, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { showConfirm } = useAlert();
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
   const prevStatuses = useRef({});
   const [notification, setNotification] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const orderParam = params.get('order');
+    if (orderParam) setHighlightedOrderId(orderParam);
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!loadingOrders && highlightedOrderId) {
+      setTimeout(() => {
+        const el = document.getElementById(`order-${highlightedOrderId}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [loadingOrders, highlightedOrderId]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -96,7 +98,6 @@ const Account = () => {
             from: prev,
             to: order.status,
           });
-          setTimeout(() => setNotification(null), 5000);
         }
         prevStatuses.current[order.id] = order.status;
       });
@@ -105,6 +106,8 @@ const Account = () => {
   }, [user]);
 
   const handleLogout = async () => {
+    const confirmed = await showConfirm('Are you sure you want to sign out?', 'warning', 'Sign Out');
+    if (!confirmed) return;
     await logout();
     navigate('/');
   };
@@ -181,9 +184,12 @@ const Account = () => {
             {orders.map(order => (
               <motion.div
                 key={order.id}
+                id={`order-${order.id}`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-surface/30 border border-primary/10 p-6"
+                className={`bg-surface/30 border p-6 transition-colors duration-500 ${
+                  highlightedOrderId === order.id ? 'border-secondary border-2 bg-secondary/5' : 'border-primary/10'
+                }`}
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
@@ -194,11 +200,11 @@ const Account = () => {
                       {formatDate(order.createdAt)} — {order.items?.length || 0} item(s)
                     </p>
                   </div>
-                  <span className={`px-2 py-0.5 text-[9px] uppercase tracking-widest whitespace-nowrap ${
-                    order.status === 'delivered' ? 'bg-green-900/50 text-green-400' :
-                    order.status === 'delivering' ? 'bg-blue-900/50 text-blue-400' :
-                    order.status === 'packing' ? 'bg-purple-900/50 text-purple-400' :
-                    'bg-yellow-900/50 text-yellow-400'
+                  <span className={`px-2 py-0.5 text-[9px] text-white uppercase tracking-widest whitespace-nowrap ${
+                    order.status === 'delivered' ? 'bg-green-700' :
+                    order.status === 'delivering' ? 'bg-blue-700' :
+                    order.status === 'packing' ? 'bg-purple-700' :
+                    'bg-yellow-700'
                   }`}>
                     {order.status}
                   </span>

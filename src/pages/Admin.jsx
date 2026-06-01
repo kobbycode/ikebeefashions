@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { collection, getDocs, orderBy, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, orderBy, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth, storage, loginAdmin, logoutAdmin } from '../services/api';
 import { products as localProducts } from '../data/products';
-import { where } from 'firebase/firestore';
 import { useAlert } from '../context/AlertContext';
+import { createNotification, NotificationBell } from '../utils/notifications';
 
 const Admin = () => {
   const [user, setUser] = useState(null);
@@ -37,6 +37,34 @@ const Admin = () => {
   // Mass Selection State
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
 
+  // Highlighted order from notification click
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+
+  const handleNotificationClick = (n) => {
+    if (n.type === 'new_order' || n.type === 'order_status') {
+      setActiveTab('orders');
+      setHighlightedOrderId(n.orderId);
+      setTimeout(() => {
+        const row = document.getElementById(`order-row-${n.orderId}`);
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  };
+
+  // Persistent Order Notifications
+  const [pendingNotifications, setPendingNotifications] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('admin_notifications') || '[]'); } catch { return []; }
+  });
+  const dismissedIds = useRef(new Set());
+  const knownOrderIds = useRef(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('admin_dismissed_notifications') || '[]');
+      dismissedIds.current = new Set(saved);
+    } catch {}
+  }, []);
+
   const { showAlert: customAlert, showConfirm: customConfirm } = useAlert();
 
   // Auth Listener
@@ -50,6 +78,41 @@ const Admin = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Real-time order listener for admin
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ordersList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setData(prev => ({ ...prev, orders: ordersList }));
+      setLoading(false);
+
+      ordersList.forEach(order => {
+        if (!knownOrderIds.current.has(order.id)) {
+          knownOrderIds.current.add(order.id);
+          if (!dismissedIds.current.has(order.id)) {
+            const entry = {
+              id: order.id,
+              orderId: order.id.slice(0, 8).toUpperCase(),
+              customer: order.customerInfo?.firstName
+                ? `${order.customerInfo.firstName} ${order.customerInfo.lastName || ''}`
+                : 'New Customer',
+              total: order.totalAmount || order.total,
+            };
+            setPendingNotifications(prev => {
+              const exists = prev.some(p => p.id === order.id);
+              if (exists) return prev;
+              const updated = [...prev, entry];
+              localStorage.setItem('admin_notifications', JSON.stringify(updated));
+              return updated;
+            });
+          }
+        }
+      });
+    });
+    return unsubscribe;
+  }, [user]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -84,11 +147,7 @@ const Admin = () => {
       const lookSnap = await getDocs(lookQ);
       const lookList = lookSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-      const ordersSnap = await getDocs(ordersQ);
-      const ordersList = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      setData({ orders: ordersList, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList });
+      setData(prev => ({ ...prev, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList }));
     } catch (error) {
       console.error("Error fetching data: ", error);
     } finally {
@@ -293,12 +352,38 @@ const Admin = () => {
         statusHistory: existingHistory,
         updatedAt: serverTimestamp()
       });
+      const shortRef = orderId.slice(0, 8).toUpperCase();
+      if (orderItem?.userId) {
+        createNotification({
+          type: 'order_status',
+          message: `Order #${shortRef} is now "${newStatus}"`,
+          recipientId: orderItem.userId,
+          recipientType: 'customer',
+          orderId: orderId,
+        });
+      }
+      createNotification({
+        type: 'order_status',
+        message: `Order #${shortRef} changed to "${newStatus}" by admin`,
+        recipientId: 'admin',
+        recipientType: 'admin',
+        orderId: orderId,
+      });
       await customAlert(`Order status updated to "${newStatus}".`, "success");
-      fetchData();
     } catch (error) {
       console.error("Error updating order status:", error);
       await customAlert("Failed to update order status.", "danger");
     }
+  };
+
+  const dismissNotification = (id) => {
+    setPendingNotifications(prev => {
+      const updated = prev.filter(p => p.id !== id);
+      localStorage.setItem('admin_notifications', JSON.stringify(updated));
+      return updated;
+    });
+    dismissedIds.current.add(id);
+    localStorage.setItem('admin_dismissed_notifications', JSON.stringify([...dismissedIds.current]));
   };
 
   const getNextStatus = (currentStatus) => {
@@ -364,6 +449,30 @@ const Admin = () => {
   // Admin Dashboard
   return (
     <div className="min-h-screen bg-[#111111] text-white pt-16 px-6 md:px-12 font-sans relative">
+      {/* Persistent Order Notification Toasts */}
+      <div className="fixed top-20 right-6 z-[9999] flex flex-col gap-3 max-w-sm">
+        {pendingNotifications.map((n, idx) => (
+          <motion.div
+            key={n.id}
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-[#222] border border-[#C5A880]/30 p-4 shadow-2xl"
+          >
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-[#C5A880] text-sm mt-0.5">notifications_active</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-[#C5A880] uppercase tracking-widest font-semibold">New Order Received</p>
+                <p className="text-xs text-white/80 mt-1">#{n.orderId}</p>
+                <p className="text-[10px] text-white/50 truncate">{n.customer} — GHS {n.total}</p>
+              </div>
+              <button onClick={() => dismissNotification(n.id)} className="text-white/30 hover:text-white ml-2 shrink-0">
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
       <div className="max-w-[1400px] mx-auto">
         
         {/* Header */}
@@ -378,7 +487,8 @@ const Admin = () => {
               Secure Database Online • {user.email}
             </p>
           </div>
-          <div className="flex gap-4 mt-6 md:mt-0">
+          <div className="flex items-center gap-4 mt-6 md:mt-0">
+            <NotificationBell recipientId="admin" recipientType="admin" isAdmin onNotificationClick={handleNotificationClick} />
             <button onClick={fetchData} className="px-6 py-3 border border-white/30 hover:bg-white hover:text-black transition-colors uppercase tracking-widest text-xs">
               {loading ? 'Syncing...' : 'Refresh'}
             </button>
@@ -698,7 +808,8 @@ const Admin = () => {
                       <motion.tr 
                         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
                         key={item.id} 
-                        className={`border-b border-white/5 transition-colors group ${selectedOrderIds.includes(item.id) ? 'bg-[#C5A880]/10' : 'hover:bg-white/5'}`}
+                        id={`order-row-${item.id}`}
+                        className={`border-b border-white/5 transition-colors group ${selectedOrderIds.includes(item.id) ? 'bg-[#C5A880]/10' : highlightedOrderId === item.id ? 'bg-[#C5A880]/20' : 'hover:bg-white/5'}`}
                       >
                         {activeTab === 'orders' && (
                           <td className="py-5 w-8">

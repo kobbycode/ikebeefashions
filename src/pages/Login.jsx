@@ -1,31 +1,156 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { validateEmail as validateEmailDeep } from '../utils/validation';
+
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+
+const getRateLimit = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem('auth_attempts') || '{}');
+    if (stored.resetAt && Date.now() > stored.resetAt) {
+      localStorage.removeItem('auth_attempts');
+      return { count: 0 };
+    }
+    return stored;
+  } catch { return { count: 0 }; }
+};
+
+const setRateLimit = () => {
+  const data = getRateLimit();
+  if (!data.resetAt) {
+    data.resetAt = Date.now() + RATE_LIMIT_WINDOW;
+  }
+  data.count = (data.count || 0) + 1;
+  localStorage.setItem('auth_attempts', JSON.stringify(data));
+  return data;
+};
+
+const getPasswordStrength = (pw) => {
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[a-z]/.test(pw)) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^a-zA-Z0-9]/.test(pw)) score++;
+  if (score <= 2) return { label: 'Weak', color: 'text-red-400', bg: 'bg-red-500/20', bar: 'w-1/4 bg-red-500' };
+  if (score <= 4) return { label: 'Fair', color: 'text-yellow-400', bg: 'bg-yellow-500/20', bar: 'w-2/4 bg-yellow-500' };
+  if (score <= 5) return { label: 'Good', color: 'text-blue-400', bg: 'bg-blue-500/20', bar: 'w-3/4 bg-blue-500' };
+  return { label: 'Strong', color: 'text-green-400', bg: 'bg-green-500/20', bar: 'w-full bg-green-500' };
+};
 
 const Login = () => {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [isRegister, setIsRegister] = useState(location.state?.register ?? false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [rateLimited, setRateLimited] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    const data = getRateLimit();
+    if (data.count >= RATE_LIMIT_MAX) {
+      const remaining = Math.max(0, data.resetAt - Date.now());
+      if (remaining > 0) {
+        setRateLimited(true);
+        setCooldown(remaining);
+      } else {
+        localStorage.removeItem('auth_attempts');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!rateLimited) return;
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, cooldown - 1000);
+      if (remaining <= 0) {
+        localStorage.removeItem('auth_attempts');
+        setRateLimited(false);
+        setCooldown(0);
+        clearInterval(interval);
+      } else {
+        setCooldown(remaining);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [rateLimited, cooldown]);
+
+  const validate = () => {
+    const errors = {};
+    const emailErr = validateEmailDeep(email);
+    if (emailErr) errors.email = emailErr;
+    if (!password) errors.password = 'Password is required.';
+    if (isRegister) {
+      if (password.length < 8) errors.password = 'Password must be at least 8 characters.';
+      if (!/[A-Z]/.test(password)) errors.password = 'Password must include an uppercase letter.';
+      if (!/[0-9]/.test(password)) errors.password = 'Password must include a number.';
+      if (password !== confirmPassword) errors.confirmPassword = 'Passwords do not match.';
+    }
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setFieldErrors({});
+
+    const data = getRateLimit();
+    if (data.count >= RATE_LIMIT_MAX) {
+      const remaining = Math.max(0, data.resetAt - Date.now());
+      if (remaining > 0) {
+        setRateLimited(true);
+        setCooldown(remaining);
+        setError(`Too many attempts. Try again in ${Math.ceil(remaining / 60000)} min.`);
+        return;
+      }
+      localStorage.removeItem('auth_attempts');
+    }
+
+    if (!validate()) return;
+
     setLoading(true);
     try {
-      await login(email, password);
+      if (isRegister) {
+        await register(email, password);
+      } else {
+        await login(email, password);
+      }
+      localStorage.removeItem('auth_attempts');
       navigate('/account');
     } catch (err) {
-      setError(err.message === 'Firebase: Error (auth/user-not-found).'
-        ? 'No account found with this email.'
-        : 'Invalid email or password.');
+      setRateLimit();
+      if (err.code === 'auth/email-already-in-use') {
+        setError('An account with this email already exists. Sign in instead.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email.');
+      } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password must be at least 6 characters.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Account temporarily locked due to too many attempts. Try again later.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const strength = isRegister ? getPasswordStrength(password) : null;
 
   return (
     <div className="min-h-screen pt-32 pb-20 px-margin-edge bg-background flex items-center justify-center">
@@ -34,9 +159,11 @@ const Login = () => {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md"
       >
-        <h1 className="font-bodoni text-headline-lg text-primary mb-2 text-center">Welcome Back</h1>
+        <h1 className="font-bodoni text-headline-lg text-primary mb-2 text-center">
+          {isRegister ? 'Create Account' : 'Welcome Back'}
+        </h1>
         <p className="font-hanken text-xs text-on-surface-variant text-center mb-10 uppercase tracking-widest">
-          Sign in to manage your orders
+          {isRegister ? 'Register to track your orders' : 'Sign in to manage your orders'}
         </p>
 
         {error && (
@@ -45,34 +172,79 @@ const Login = () => {
           </div>
         )}
 
+        {rateLimited && (
+          <div className="bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs text-center p-3 mb-6 uppercase tracking-widest">
+            Too many attempts. Try again in {Math.ceil(cooldown / 60000)}:{String(Math.ceil((cooldown % 60000) / 1000)).padStart(2, '0')}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-[10px] text-on-surface-variant uppercase tracking-widest mb-2">Email</label>
             <input
               type="email" required
-              value={email} onChange={e => setEmail(e.target.value)}
-              className="w-full bg-transparent border-b border-primary/20 pb-2 text-primary focus:outline-none focus:border-secondary transition-colors font-hanken"
+              value={email} onChange={e => { setEmail(e.target.value); setFieldErrors(prev => ({...prev, email: ''})); }}
+              className={`w-full bg-transparent border-b pb-2 text-primary focus:outline-none focus:border-secondary transition-colors font-hanken ${fieldErrors.email ? 'border-red-500' : 'border-primary/20'}`}
             />
+            {fieldErrors.email && <p className="text-red-400 text-[10px] mt-1">{fieldErrors.email}</p>}
           </div>
+
           <div>
             <label className="block text-[10px] text-on-surface-variant uppercase tracking-widest mb-2">Password</label>
-            <input
-              type="password" required
-              value={password} onChange={e => setPassword(e.target.value)}
-              className="w-full bg-transparent border-b border-primary/20 pb-2 text-primary focus:outline-none focus:border-secondary transition-colors font-hanken"
-            />
+            <div className={`flex items-center border-b ${fieldErrors.password ? 'border-red-500' : 'border-primary/20'} focus-within:border-secondary transition-colors`}>
+              <input
+                type={showPassword ? 'text' : 'password'} required
+                value={password} onChange={e => { setPassword(e.target.value); setFieldErrors(prev => ({...prev, password: ''})); }}
+                className="w-full bg-transparent pb-2 text-primary focus:outline-none font-hanken"
+              />
+              <button type="button" onClick={() => setShowPassword(p => !p)} className="pb-2 text-on-surface-variant hover:text-primary transition-colors" tabIndex={-1}>
+                <span className="material-symbols-outlined text-sm">{showPassword ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
+            {fieldErrors.password && <p className="text-red-400 text-[10px] mt-1">{fieldErrors.password}</p>}
+            {isRegister && strength && (
+              <div className="mt-2 space-y-1">
+                <div className="h-1 bg-primary/10 rounded-none overflow-hidden">
+                  <div className={`h-full transition-all duration-300 ${strength.bar}`} />
+                </div>
+                <p className={`text-[9px] uppercase tracking-widest ${strength.color}`}>{strength.label}</p>
+              </div>
+            )}
           </div>
+
+          {isRegister && (
+            <div>
+              <label className="block text-[10px] text-on-surface-variant uppercase tracking-widest mb-2">Confirm Password</label>
+              <div className={`flex items-center border-b ${fieldErrors.confirmPassword ? 'border-red-500' : 'border-primary/20'} focus-within:border-secondary transition-colors`}>
+                <input
+                  type={showConfirm ? 'text' : 'password'} required
+                  value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setFieldErrors(prev => ({...prev, confirmPassword: ''})); }}
+                  className="w-full bg-transparent pb-2 text-primary focus:outline-none font-hanken"
+                />
+                <button type="button" onClick={() => setShowConfirm(p => !p)} className="pb-2 text-on-surface-variant hover:text-primary transition-colors" tabIndex={-1}>
+                  <span className="material-symbols-outlined text-sm">{showConfirm ? 'visibility_off' : 'visibility'}</span>
+                </button>
+              </div>
+              {fieldErrors.confirmPassword && <p className="text-red-400 text-[10px] mt-1">{fieldErrors.confirmPassword}</p>}
+            </div>
+          )}
+
           <button
-            type="submit" disabled={loading}
+            type="submit" disabled={loading || rateLimited}
             className="w-full py-4 bg-primary text-white font-hanken text-xs uppercase tracking-widest hover:bg-secondary transition-colors disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In'}
           </button>
         </form>
 
         <p className="font-hanken text-xs text-on-surface-variant text-center mt-8">
-          Don't have an account?{' '}
-          <Link to="/" className="text-secondary underline underline-offset-2">Create one</Link>
+          {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <button
+            onClick={() => { setIsRegister(!isRegister); setError(''); setFieldErrors({}); setConfirmPassword(''); }}
+            className="text-secondary underline underline-offset-2 cursor-pointer bg-transparent border-none p-0 font-hanken text-xs"
+          >
+            {isRegister ? 'Sign in' : 'Create one'}
+          </button>
         </p>
       </motion.div>
     </div>
