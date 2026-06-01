@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,400..900;1,400..900&family=Hanken+Grotesk:ital,wght@0,100..900;1,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-background: #fbf9f4;
+  --color-primary: #000000;
+  --color-secondary: #C5A059;
+  --color-surface: #fbf9f4;
+  --color-on-background: #1b1c19;
+  --color-on-primary: #ffffff;
+  --color-on-surface-variant: #444748;
+  --color-surface-container: #f0eee9;
+  --color-surface-container-low: #f5f3ee;
+
+  --font-bodoni: "Bodoni Moda", serif;
+  --font-hanken: "Hanken Grotesk", sans-serif;
+
+  --spacing-margin-edge: clamp(24px, 5vw, 64px);
+  --spacing-section-gap: clamp(64px, 10vw, 128px);
+  --spacing-unit: 8px;
+  --spacing-gutter: clamp(16px, 3vw, 32px);
+
+  --max-width-container-max: 1440px;
+
+  --font-size-display-xl: clamp(48px, 8vw, 80px);
+  --font-size-display-md: clamp(36px, 5vw, 56px);
+  --font-size-headline-lg: clamp(28px, 5vw, 48px);
+  --font-size-headline-md: clamp(22px, 3.5vw, 32px);
+  --font-size-headline-sm: clamp(18px, 2.5vw, 24px);
+  --font-size-body-lg: 18px;
+  --font-size-body-md: 16px;
+  --font-size-label-sm: 12px;
+}
+
+@layer base {
+  :root {
+    font-family: var(--font-hanken);
+    line-height: 1.5;
+    font-weight: 400;
+
+    color-scheme: light dark;
+    color: #1b1c19;
+    background-color: #fbf9f4;
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  }
+}

@@ -1,0 +1,803 @@
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { collection, getDocs, orderBy, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth, storage, loginAdmin, logoutAdmin } from '../services/api';
+import { products as localProducts } from '../data/products';
+import { where } from 'firebase/firestore';
+import AdminAlert from '../components/AdminAlert';
+
+const Admin = () => {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+
+  const [activeTab, setActiveTab] = useState('orders');
+  const [data, setData] = useState({ orders: [], bespoke: [], inquiries: [], newsletter: [], products: [], lookbook: [] });
+  const [loading, setLoading] = useState(true);
+
+  // New Product Form State
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+  const [newProductImage, setNewProductImage] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Lookbook Form State
+  const [showLookbookForm, setShowLookbookForm] = useState(false);
+  const [newLookbookImage, setNewLookbookImage] = useState(null);
+  const [newLookbookCaption, setNewLookbookCaption] = useState('');
+  const [newLookbookSlug, setNewLookbookSlug] = useState('');
+
+  // Request Details Modal State
+  const [selectedRequest, setSelectedRequest] = useState(null);
+
+  // Custom Alert State
+  const [alertConfig, setAlertConfig] = useState(null);
+
+  const customAlert = (message, type = 'info') => {
+    return new Promise((resolve) => {
+      setAlertConfig({
+        message,
+        type,
+        isConfirm: false,
+        onConfirm: () => {
+          setAlertConfig(null);
+          resolve(true);
+        }
+      });
+    });
+  };
+
+  const customConfirm = (message, type = 'warning') => {
+    return new Promise((resolve) => {
+      setAlertConfig({
+        message,
+        type,
+        isConfirm: true,
+        onConfirm: () => {
+          setAlertConfig(null);
+          resolve(true);
+        },
+        onCancel: () => {
+          setAlertConfig(null);
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+      if (currentUser) {
+        fetchData();
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    try {
+      await loginAdmin(loginForm.email, loginForm.password);
+    } catch (err) {
+      setLoginError('Invalid credentials. Access denied.');
+    }
+  };
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const bespokeQ = query(collection(db, 'bespoke_requests'), orderBy('createdAt', 'desc'));
+      const bespokeSnap = await getDocs(bespokeQ);
+      const bespokeList = bespokeSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const inqQ = query(collection(db, 'inquiries'), orderBy('createdAt', 'desc'));
+      const inqSnap = await getDocs(inqQ);
+      const inqList = inqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const newsQ = query(collection(db, 'newsletter_subscribers'), orderBy('subscribedAt', 'desc'));
+      const newsSnap = await getDocs(newsQ);
+      const newsList = newsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const prodQ = query(collection(db, 'products'), orderBy('createdAt', 'desc'));
+      const prodSnap = await getDocs(prodQ);
+      const prodList = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const lookQ = query(collection(db, 'lookbook'), orderBy('createdAt', 'desc'));
+      const lookSnap = await getDocs(lookQ);
+      const lookList = lookSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+      const ordersSnap = await getDocs(ordersQ);
+      const ordersList = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      setData({ orders: ordersList, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList });
+    } catch (error) {
+      console.error("Error fetching data: ", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddOrUpdateProduct = async (e) => {
+    e.preventDefault();
+    if (!editingProduct && !newProductImage) return customAlert("Please select an image before publishing.", "warning");
+    setIsUploading(true);
+
+    try {
+      let imageUrl = editingProduct ? editingProduct.image : null;
+
+      if (newProductImage) {
+        const imageRef = ref(storage, `products/${Date.now()}_${newProductImage.name}`);
+        await uploadBytes(imageRef, newProductImage);
+        imageUrl = await getDownloadURL(imageRef);
+      }
+
+      const productData = {
+        name: newProduct.name,
+        title: newProduct.name,
+        image: imageUrl,
+        price: parseFloat(newProduct.price),
+        category: newProduct.category,
+        tag: newProduct.tag || '',
+        isNew: Boolean(newProduct.isNew),
+        details: newProduct.details,
+        slug: newProduct.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      };
+
+      if (editingProduct) {
+        await updateDoc(doc(db, 'products', editingProduct.id), {
+          ...productData,
+          updatedAt: serverTimestamp()
+        });
+        await customAlert("Product updated successfully.", "success");
+      } else {
+        await addDoc(collection(db, 'products'), {
+          ...productData,
+          createdAt: serverTimestamp()
+        });
+        await customAlert("Product published successfully.", "success");
+      }
+
+      setShowProductForm(false);
+      setEditingProduct(null);
+      setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+      setNewProductImage(null);
+      fetchData(); // Refresh list
+    } catch (error) {
+      console.error("Upload error:", error);
+      await customAlert(`Failed to ${editingProduct ? 'update' : 'upload'} product.`, "danger");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleEditClick = (prod) => {
+    setEditingProduct(prod);
+    const rawPrice = prod.price;
+    const numericPrice = rawPrice != null
+      ? String(rawPrice).replace(/[^0-9.-]+/g, '')
+      : '';
+    const rawDetails = prod.details || prod.description || '';
+    const detailsStr = Array.isArray(rawDetails) ? rawDetails.join('\n') : String(rawDetails);
+    setNewProduct({
+      name: prod.title || prod.name || '',
+      price: numericPrice,
+      category: prod.category || '',
+      tag: prod.tag || '',
+      isNew: prod.isNew || false,
+      details: detailsStr
+    });
+    setNewProductImage(null);
+    setShowProductForm(true);
+  };
+
+  const handleMigrateCatalog = async () => {
+    const isConfirmed = await customConfirm("This will migrate all local products to the live database. Are you sure you want to proceed?", "warning");
+    if(!isConfirmed) return;
+    
+    setIsUploading(true);
+    try {
+      let count = 0;
+      for (const prod of localProducts) {
+        const q = query(collection(db, 'products'), where('slug', '==', prod.slug));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          // Remove the hardcoded 'id' so Firestore creates its own ID
+          const { id, ...prodWithoutId } = prod;
+          await addDoc(collection(db, 'products'), {
+            ...prodWithoutId,
+            name: prod.title, // Add fallback mappings just in case
+            image: prod.img,
+            createdAt: serverTimestamp()
+          });
+          count++;
+        }
+      }
+      await customAlert(`Successfully migrated ${count} products to the live database!`, "success");
+      fetchData();
+    } catch (error) {
+      console.error("Migration error:", error);
+      await customAlert(`Migration failed: ${error.message}`, "danger");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteProduct = async (id) => {
+    const isConfirmed = await customConfirm("Are you sure you want to permanently delete this product?", "danger");
+    if(isConfirmed) {
+      await deleteDoc(doc(db, 'products', id));
+      fetchData();
+    }
+  };
+
+  const handleAddLookbookImage = async (e) => {
+    e.preventDefault();
+    if (!newLookbookImage) return customAlert("Please select an image.", "warning");
+    setIsUploading(true);
+    try {
+      const imageRef = ref(storage, `lookbook/${Date.now()}_${newLookbookImage.name}`);
+      await uploadBytes(imageRef, newLookbookImage);
+      const imageUrl = await getDownloadURL(imageRef);
+
+      await addDoc(collection(db, 'lookbook'), {
+        image: imageUrl,
+        caption: newLookbookCaption,
+        slug: newLookbookSlug || null,
+        createdAt: serverTimestamp()
+      });
+
+      await customAlert("Lookbook asset published successfully.", "success");
+      setNewLookbookImage(null);
+      setNewLookbookCaption('');
+      setNewLookbookSlug('');
+      setShowLookbookForm(false);
+      fetchData();
+    } catch (error) {
+      console.error("Upload error:", error);
+      await customAlert("Failed to upload lookbook asset.", "danger");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteLookbookImage = async (id) => {
+    const isConfirmed = await customConfirm("Are you sure you want to permanently delete this image?", "danger");
+    if(isConfirmed) {
+      await deleteDoc(doc(db, 'lookbook', id));
+      fetchData();
+    }
+  };
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'Just now';
+    const date = timestamp.toDate();
+    return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  };
+
+  if (authLoading) return <div className="min-h-screen bg-[#111111] flex items-center justify-center text-[#C5A880] uppercase tracking-widest text-sm animate-pulse">Initializing Secure Connection...</div>;
+
+  // Login Screen
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#111111] flex items-center justify-center font-sans p-6 relative overflow-hidden">
+        {/* Luxury Background Accents */}
+        <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-20 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#C5A880]/30 via-[#111111] to-[#111111]"></div>
+        
+        <motion.div 
+          initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: "easeOut" }}
+          className="relative z-10 w-full max-w-md bg-[#1A1A1A] p-10 border border-white/10 shadow-2xl"
+        >
+          <div className="text-center mb-8">
+            <div className="flex justify-center mb-6">
+              <img src="/logo.jpeg" alt="IKEBEE" className="h-24 w-auto object-contain" />
+            </div>
+            <p className="text-[#C5A880] text-xs uppercase tracking-widest">Authorized Personnel Only</p>
+          </div>
+          
+          {loginError && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center p-3 mb-6 uppercase tracking-widest">{loginError}</div>}
+
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Admin Email</label>
+              <input 
+                type="email" required
+                value={loginForm.email} onChange={e => setLoginForm({...loginForm, email: e.target.value})}
+                className="w-full bg-transparent border-b border-white/20 pb-2 text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Passcode</label>
+              <input 
+                type="password" required
+                value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})}
+                className="w-full bg-transparent border-b border-white/20 pb-2 text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+              />
+            </div>
+            <button type="submit" className="w-full bg-white text-black py-4 text-xs tracking-[0.2em] uppercase font-semibold hover:bg-[#C5A880] hover:text-white transition-all duration-300 mt-4">
+              Enter Command Center
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Admin Dashboard
+  return (
+    <div className="min-h-screen bg-[#111111] text-white pt-16 px-6 md:px-12 font-sans relative">
+      <AdminAlert config={alertConfig} />
+      <div className="max-w-[1400px] mx-auto">
+        
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-white/20 pb-6 mb-8">
+          <div>
+          <div className="flex items-center gap-6 mb-4 md:mb-0">
+            <img src="/logo.jpeg" alt="IKEBEE" className="h-20 w-auto object-contain" />
+            <h1 className="text-xl md:text-3xl font-serif tracking-wide uppercase">Command Center</h1>
+          </div>
+            <p className="text-[#C5A880] tracking-widest text-xs uppercase flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              Secure Database Online • {user.email}
+            </p>
+          </div>
+          <div className="flex gap-4 mt-6 md:mt-0">
+            <button onClick={fetchData} className="px-6 py-3 border border-white/30 hover:bg-white hover:text-black transition-colors uppercase tracking-widest text-xs">
+              {loading ? 'Syncing...' : 'Refresh'}
+            </button>
+            <button onClick={logoutAdmin} className="px-6 py-3 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-colors uppercase tracking-widest text-xs">
+              Lock & Exit
+            </button>
+          </div>
+        </div>
+
+        {/* Analytics Overview */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+          {[
+            { label: 'Total Orders', count: data.orders.length, icon: 'receipt_long' },
+            { label: 'Total Inventory', count: data.products.length, icon: 'inventory_2' },
+            { label: 'Bespoke Requests', count: data.bespoke.length, icon: 'design_services' },
+            { label: 'Private Inquiries', count: data.inquiries.length, icon: 'mail' },
+            { label: 'Lookbook Assets', count: data.lookbook.length, icon: 'photo_library' },
+            { label: 'Subscribers', count: data.newsletter.length, icon: 'group' },
+          ].map((stat, idx) => (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.1 }}
+              key={idx} 
+              className="bg-[#1A1A1A] border border-white/10 p-6 flex flex-col justify-between hover:border-[#C5A880]/50 transition-colors"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <span className="material-symbols-outlined text-[#C5A880]">{stat.icon}</span>
+                <span className="text-3xl font-serif text-white">{loading ? '-' : stat.count}</span>
+              </div>
+              <p className="text-[10px] text-white/50 uppercase tracking-widest">{stat.label}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex space-x-8 border-b border-white/10 mb-8 overflow-x-auto">
+          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`pb-4 uppercase tracking-widest text-xs font-semibold transition-colors whitespace-nowrap ${
+                activeTab === tab ? 'text-[#C5A880] border-b-2 border-[#C5A880]' : 'text-white/50 hover:text-white'
+              }`}
+            >
+              {tab.replace('_', ' ')} ({data[tab].length})
+            </button>
+          ))}
+        </div>
+
+        {/* Products Management Area */}
+        {activeTab === 'products' && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="font-serif text-2xl uppercase tracking-widest">Inventory Management</h2>
+              <div className="flex gap-4">
+                <button 
+                  onClick={handleMigrateCatalog}
+                  disabled={isUploading}
+                  className="bg-transparent border border-[#C5A880] text-[#C5A880] px-6 py-3 text-xs uppercase tracking-widest hover:bg-[#C5A880] hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {isUploading ? 'Syncing...' : 'Migrate Local Catalog'}
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowProductForm(!showProductForm);
+                    setEditingProduct(null);
+                    setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+                  }}
+                  className="bg-[#C5A880] text-white px-6 py-3 text-xs uppercase tracking-widest hover:bg-[#a38a68] transition-colors"
+                >
+                  {showProductForm ? 'Cancel' : '+ Add New Product'}
+                </button>
+              </div>
+            </div>
+
+            {/* Add/Edit Product Form */}
+            <AnimatePresence>
+              {showProductForm && (
+                <motion.form 
+                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                  onSubmit={handleAddOrUpdateProduct} 
+                  className="bg-[#1A1A1A] p-6 border border-white/10 mb-8 overflow-hidden"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Product Name</label>
+                      <input type="text" required value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Price (GHS)</label>
+                      <input type="number" required value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Category (e.g. FW24)</label>
+                      <input type="text" required value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Tag (e.g. LIMITED EDITION)</label>
+                      <input type="text" value={newProduct.tag} onChange={e => setNewProduct({...newProduct, tag: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Product Image</label>
+                      <input type="file" accept="image/*" onChange={e => setNewProductImage(e.target.files[0])} className="text-xs text-white/50 file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-xs file:uppercase file:tracking-widest file:bg-white/10 file:text-white hover:file:bg-white/20 cursor-pointer"/>
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" checked={newProduct.isNew} onChange={e => setNewProduct({...newProduct, isNew: e.target.checked})} className="accent-[#C5A880] w-4 h-4" />
+                        <span className="text-xs text-white/70 uppercase tracking-widest">Mark as "NEW"</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Product Description / Details</label>
+                      <textarea required rows="3" value={newProduct.details} onChange={e => setNewProduct({...newProduct, details: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880] resize-none"></textarea>
+                  </div>
+                  <button type="submit" disabled={isUploading} className="mt-6 bg-white text-black px-8 py-3 text-xs uppercase tracking-widest font-semibold hover:bg-[#C5A880] hover:text-white transition-colors disabled:opacity-50">
+                    {isUploading ? 'Saving...' : editingProduct ? 'Update Product' : 'Publish Product'}
+                  </button>
+                </motion.form>
+              )}
+            </AnimatePresence>
+
+            {/* Products Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {data.products.map(prod => (
+                <div key={prod.id} className="bg-[#1A1A1A] border border-white/10 group relative overflow-hidden">
+                  <div className="h-48 overflow-hidden bg-black/50">
+                    <img src={prod.image} alt={prod.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  </div>
+                  <div className="p-4">
+                    <p className="text-[10px] text-[#C5A880] tracking-widest uppercase mb-1">{prod.category}</p>
+                    <h3 className="text-sm font-semibold truncate">{prod.title || prod.name}</h3>
+                    <p className="text-white/60 text-sm mt-1">GHS {typeof prod.price === 'string' && prod.price.startsWith('GHS') ? prod.price.replace('GHS ', '') : Number(prod.price).toLocaleString()}</p>
+                  </div>
+                  <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleEditClick(prod)} className="bg-white text-black w-8 h-8 rounded-full flex items-center justify-center shadow-lg hover:bg-[#C5A880] hover:text-white transition-colors">
+                      <span className="material-symbols-outlined text-sm">edit</span>
+                    </button>
+                    <button onClick={() => handleDeleteProduct(prod.id)} className="bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg hover:bg-red-600 transition-colors">
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {data.products.length === 0 && !loading && (
+                <div className="col-span-full py-12 text-center text-white/40 uppercase tracking-widest text-sm border border-dashed border-white/10">
+                  No products in inventory.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Lookbook Management Area */}
+        {activeTab === 'lookbook' && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="font-serif text-2xl uppercase tracking-widest">Lookbook Gallery</h2>
+              <button 
+                onClick={() => {
+                  setShowLookbookForm(!showLookbookForm);
+                  setNewLookbookImage(null);
+                  setNewLookbookCaption('');
+                }}
+                className="bg-[#C5A880] text-white px-6 py-3 text-xs uppercase tracking-widest hover:bg-[#a38a68] transition-colors"
+              >
+                {showLookbookForm ? 'Cancel' : '+ Add Asset'}
+              </button>
+            </div>
+
+            {/* Add Lookbook Asset Form */}
+            <AnimatePresence>
+              {showLookbookForm && (
+                <motion.form 
+                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                  onSubmit={handleAddLookbookImage} 
+                  className="bg-[#1A1A1A] p-6 border border-white/10 mb-8 overflow-hidden"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Image Asset</label>
+                      <input type="file" accept="image/*" required onChange={e => setNewLookbookImage(e.target.files[0])} className="text-xs text-white/50 file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-xs file:uppercase file:tracking-widest file:bg-white/10 file:text-white hover:file:bg-white/20 cursor-pointer"/>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Caption (Optional)</label>
+                      <input type="text" value={newLookbookCaption} onChange={e => setNewLookbookCaption(e.target.value)} placeholder="e.g. FW24 Editorial in London" className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Link to Product (Optional)</label>
+                      <select
+                        value={newLookbookSlug}
+                        onChange={e => setNewLookbookSlug(e.target.value)}
+                        className="w-full bg-[#111111] border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880] appearance-none cursor-pointer"
+                      >
+                        <option value="">— No link —</option>
+                        {data.products.map(prod => (
+                          <option key={prod.id} value={prod.slug || prod.id}>
+                            {prod.title || prod.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <button type="submit" disabled={isUploading} className="mt-6 bg-white text-black px-8 py-3 text-xs uppercase tracking-widest font-semibold hover:bg-[#C5A880] hover:text-white transition-colors disabled:opacity-50">
+                    {isUploading ? 'Uploading...' : 'Publish Asset'}
+                  </button>
+                </motion.form>
+              )}
+            </AnimatePresence>
+
+            {/* Lookbook Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              {data.lookbook.map(asset => (
+                <div key={asset.id} className="bg-[#1A1A1A] border border-white/10 group relative overflow-hidden h-64">
+                  <img src={asset.image} alt={asset.caption} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-end">
+                    <p className="text-xs text-white/90 uppercase tracking-widest truncate">{asset.caption || 'No Caption'}</p>
+                    <p className="text-[10px] text-[#C5A880] mt-1">{formatDate(asset.createdAt)}</p>
+                    {asset.slug && (
+                      <p className="text-[10px] text-green-400 mt-1 flex items-center gap-1">
+                        <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>link</span>
+                        Linked to product
+                      </p>
+                    )}
+                  </div>
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleDeleteLookbookImage(asset.id)} className="bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg hover:bg-red-600 transition-colors">
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {data.lookbook.length === 0 && !loading && (
+                <div className="col-span-full py-12 text-center text-white/40 uppercase tracking-widest text-sm border border-dashed border-white/10">
+                  No editorial assets uploaded yet.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Content Area for Requests */}
+        {activeTab !== 'products' && activeTab !== 'lookbook' && (
+          <div className="bg-[#1A1A1A] border border-white/10 p-6 md:p-8 min-h-[500px]">
+            {loading ? (
+              <div className="h-full flex items-center justify-center text-white/50 animate-pulse tracking-widest uppercase text-sm">
+                Loading Secure Data...
+              </div>
+            ) : data[activeTab].length === 0 ? (
+              <div className="h-full flex items-center justify-center text-white/40 tracking-widest uppercase py-20 text-sm">
+                No records found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/20 text-white/60 text-[10px] uppercase tracking-widest">
+                      <th className="pb-4 font-normal">Date</th>
+                      {activeTab === 'orders' && (
+                        <>
+                          <th className="pb-4 font-normal">Order ID</th>
+                          <th className="pb-4 font-normal">Customer</th>
+                          <th className="pb-4 font-normal">Total</th>
+                          <th className="pb-4 font-normal">Status</th>
+                          <th className="pb-4 font-normal text-right">Actions</th>
+                        </>
+                      )}
+                      {activeTab === 'bespoke' && (
+                        <>
+                          <th className="pb-4 font-normal">Client Name</th>
+                          <th className="pb-4 font-normal">Email</th>
+                          <th className="pb-4 font-normal">Phone</th>
+                          <th className="pb-4 font-normal">Type</th>
+                          <th className="pb-4 font-normal text-right">Actions</th>
+                        </>
+                      )}
+                      {activeTab === 'inquiries' && (
+                        <>
+                          <th className="pb-4 font-normal">Item</th>
+                          <th className="pb-4 font-normal">Name</th>
+                          <th className="pb-4 font-normal">Email</th>
+                          <th className="pb-4 font-normal text-right">Actions</th>
+                        </>
+                      )}
+                      {activeTab === 'newsletter' && (
+                        <th className="pb-4 font-normal">Subscriber Email</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data[activeTab].map((item, index) => (
+                      <motion.tr 
+                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
+                        key={item.id} 
+                        className="border-b border-white/5 hover:bg-white/5 transition-colors group"
+                      >
+                        <td className="py-5 text-xs text-white/80">{formatDate(item.createdAt || item.subscribedAt)}</td>
+                        
+                        {activeTab === 'orders' && (
+                          <>
+                            <td className="py-5 text-sm font-semibold text-[#C5A880]">{item.id.slice(0, 8)}</td>
+                            <td className="py-5 text-sm text-white/70">
+                              {item.customerInfo?.firstName} {item.customerInfo?.lastName}<br/>
+                              <span className="text-[10px] text-white/40">{item.customerInfo?.email}</span>
+                            </td>
+                            <td className="py-5 text-sm text-white">GHS {item.total}</td>
+                            <td className="py-5 text-sm">
+                              <span className={`px-2 py-1 text-[10px] uppercase tracking-widest ${item.status === 'paid' ? 'bg-green-900/50 text-green-400' : 'bg-yellow-900/50 text-yellow-400'}`}>
+                                {item.status}
+                              </span>
+                            </td>
+                            <td className="py-5 text-right">
+                              <button onClick={() => setSelectedRequest(item)} className="text-[#C5A880] hover:text-white text-[10px] uppercase tracking-widest border border-[#C5A880]/30 hover:border-white px-3 py-1 transition-colors whitespace-nowrap">View Details</button>
+                            </td>
+                          </>
+                        )}
+                        
+                        {activeTab === 'bespoke' && (
+                          <>
+                            <td className="py-5 text-sm font-semibold">{item.name}</td>
+                            <td className="py-5 text-sm text-white/70">{item.email}</td>
+                            <td className="py-5 text-sm text-white/70">{item.phone}</td>
+                            <td className="py-5 text-xs text-[#C5A880] uppercase tracking-widest">{item.garmentType}</td>
+                            <td className="py-5 text-right">
+                              <button onClick={() => setSelectedRequest(item)} className="text-[#C5A880] hover:text-white text-[10px] uppercase tracking-widest border border-[#C5A880]/30 hover:border-white px-3 py-1 transition-colors whitespace-nowrap">View Details</button>
+                            </td>
+                          </>
+                        )}
+                        
+                        {activeTab === 'inquiries' && (
+                          <>
+                            <td className="py-5 text-sm font-semibold">{item.productName}</td>
+                            <td className="py-5 text-sm text-white/70">{item.name}</td>
+                            <td className="py-5 text-sm text-white/70">{item.email}</td>
+                            <td className="py-5 text-right">
+                              <button onClick={() => setSelectedRequest(item)} className="text-[#C5A880] hover:text-white text-[10px] uppercase tracking-widest border border-[#C5A880]/30 hover:border-white px-3 py-1 transition-colors whitespace-nowrap">View Details</button>
+                            </td>
+                          </>
+                        )}
+                        
+                        {activeTab === 'newsletter' && (
+                          <td className="py-5 text-sm font-semibold">{item.email}</td>
+                        )}
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+
+      {/* Request Details Modal */}
+      <AnimatePresence>
+        {selectedRequest && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setSelectedRequest(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#1A1A1A] border border-white/20 p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto relative"
+              onClick={e => e.stopPropagation()}
+            >
+              <button onClick={() => setSelectedRequest(null)} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+              
+              <h2 className="text-2xl font-serif uppercase tracking-widest text-[#C5A880] mb-6 border-b border-white/10 pb-4">
+                {activeTab === 'orders' ? 'Order Details' : activeTab === 'bespoke' ? 'Bespoke Request Details' : 'Inquiry Details'}
+              </h2>
+              
+              <div className="space-y-4 text-sm text-white/80">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {activeTab === 'orders' ? (
+                    <>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Date</span>{formatDate(selectedRequest.createdAt)}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Order ID</span>{selectedRequest.id}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Customer</span>{selectedRequest.customerInfo?.firstName} {selectedRequest.customerInfo?.lastName}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Email</span>{selectedRequest.customerInfo?.email}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Phone</span>{selectedRequest.customerInfo?.phone}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Status</span><span className={`uppercase tracking-widest ${selectedRequest.status === 'paid' ? 'text-green-400' : 'text-yellow-400'}`}>{selectedRequest.status}</span></div>
+                      
+                      <div className="md:col-span-2 mt-4">
+                        <span className="block text-[10px] text-white/40 uppercase tracking-widest mb-2 border-b border-white/10 pb-2">Items</span>
+                        {selectedRequest.items?.map((item, idx) => (
+                          <div key={idx} className="flex justify-between items-center py-2 border-b border-white/5">
+                            <div className="flex items-center gap-4">
+                              <img src={item.image} alt={item.name} className="w-12 h-16 object-cover" />
+                              <div>
+                                <p className="text-sm">{item.name}</p>
+                                <p className="text-[10px] text-white/50 uppercase tracking-widest">Qty: {item.quantity} | Size: {item.size}</p>
+                              </div>
+                            </div>
+                            <p className="text-sm">GHS {item.price * item.quantity}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="md:col-span-2 mt-4 border-t border-white/10 pt-4 text-right">
+                        <p className="text-sm text-white/60">Subtotal: GHS {selectedRequest.subtotal}</p>
+                        <p className="text-sm text-white/60">Shipping: GHS {selectedRequest.shippingFee}</p>
+                        <p className="text-sm text-white/60">Tax: GHS {selectedRequest.tax}</p>
+                        <p className="text-lg font-serif mt-2">Total: GHS {selectedRequest.total}</p>
+                      </div>
+                      
+                      <div className="md:col-span-2 mt-4">
+                        <span className="block text-[10px] text-white/40 uppercase tracking-widest mb-2 border-b border-white/10 pb-2">Shipping Address</span>
+                        <p className="text-sm text-white/80">{selectedRequest.customerInfo?.address}</p>
+                        {selectedRequest.customerInfo?.apartment && <p className="text-sm text-white/80">{selectedRequest.customerInfo?.apartment}</p>}
+                        <p className="text-sm text-white/80">{selectedRequest.customerInfo?.city}, {selectedRequest.customerInfo?.country} {selectedRequest.customerInfo?.postalCode}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Date</span>{formatDate(selectedRequest.createdAt)}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Client Name</span>{selectedRequest.name}</div>
+                      <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Email</span>{selectedRequest.email}</div>
+                      {selectedRequest.phone && <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Phone Number</span>{selectedRequest.phone}</div>}
+                      {selectedRequest.productName && <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Product Inquired</span><span className="text-[#C5A880]">{selectedRequest.productName}</span></div>}
+                      {selectedRequest.garmentType && <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Garment Type</span>{selectedRequest.garmentType}</div>}
+                      {selectedRequest.budget && <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Estimated Budget</span>{selectedRequest.budget}</div>}
+                      {selectedRequest.timeline && <div><span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Target Timeline</span>{selectedRequest.timeline}</div>}
+                    </>
+                  )}
+                </div>
+                
+                {selectedRequest.message && (
+                  <div className="mt-8 border-t border-white/10 pt-6">
+                    <span className="block text-[10px] text-white/40 uppercase tracking-widest mb-4">Message / Requirements</span>
+                    <p className="whitespace-pre-wrap leading-relaxed text-white/90 bg-black/40 p-5 rounded-sm border border-white/5 font-light">{selectedRequest.message}</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+    </div>
+  );
+};
+
+// We need AnimatePresence for the form
+import { AnimatePresence } from 'framer-motion';
+
+export default Admin;

@@ -1,0 +1,280 @@
+import React, { useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useProducts, formatGHS } from '../hooks/useProducts';
+import { sendInquiryRequest } from '../services/api';
+import { useCart } from '../context/CartContext';
+import LazyImage from '../components/LazyImage';
+
+const ProductDetail = () => {
+  const { slug } = useParams();
+  const navigate = useNavigate();
+  const { products, getProductBySlug, loading } = useProducts();
+  const product = getProductBySlug(slug);
+
+  const { addToCart, setIsCartOpen } = useCart();
+  const [selectedSize, setSelectedSize] = useState('');
+  const [activeImg, setActiveImg] = useState(0);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center flex-col gap-6">
+        <p className="font-bodoni text-headline-lg text-primary italic">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="min-h-screen flex items-center justify-center flex-col gap-6">
+        <p className="font-bodoni text-headline-lg text-primary italic">Product not found.</p>
+        <Link to="/collection" className="font-hanken text-label-sm text-primary border-b border-primary pb-1">
+          Back to Collection
+        </Link>
+      </div>
+    );
+  }
+
+  const related = products.filter(p => p.category === product.category && p.id !== product.id).slice(0, 3);
+
+  const handleAddToCart = () => {
+    if (!selectedSize) {
+      alert('Please select a size before adding to your bag.');
+      return;
+    }
+    
+    // Parse price string to number for cart calculations (handles "GHS 4,500" format)
+    const numericPrice = parseFloat(product.price.replace(/[^0-9.-]+/g, ""));
+
+    addToCart({
+      id: `${product.id}-${selectedSize}`, // Make id unique by size
+      productId: product.id,
+      name: product.title,
+      price: numericPrice || 0,
+      image: product.img || product.galleryImgs[0],
+      category: product.category,
+      size: selectedSize
+    });
+    
+    // Open the cart sidebar
+    setIsCartOpen(true);
+  };
+
+  return (
+    <div className="bg-background pt-24 pb-section-gap overflow-hidden">
+      {/* Breadcrumb */}
+      <div className="px-margin-edge max-w-container-max mx-auto mb-12 flex items-center gap-3">
+        <Link to="/collection" className="font-hanken text-label-sm text-on-surface-variant hover:text-primary transition-colors">
+          Collection
+        </Link>
+        <span className="text-on-surface-variant/40">—</span>
+        <span className="font-hanken text-label-sm text-secondary">{product.category}</span>
+        <span className="text-on-surface-variant/40">—</span>
+        <span className="font-hanken text-label-sm text-primary">{product.title}</span>
+      </div>
+
+      {/* Main Product Layout */}
+      <section className="px-margin-edge max-w-container-max mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter lg:gap-16 items-start">
+
+          {/* Gallery Column */}
+          <div className="lg:col-span-7">
+            {/* Main Image */}
+            <motion.div
+              key={activeImg}
+              initial={{ opacity: 0, scale: 1.02 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6 }}
+              className="aspect-[3/4] overflow-hidden mb-4 bg-surface-container relative"
+            >
+              <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
+                {product.isNew && (
+                  <span className="bg-secondary text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">New</span>
+                )}
+                {product.tag && (
+                  <span className="bg-primary/80 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">{product.tag}</span>
+                )}
+              </div>
+              <LazyImage
+                src={product.galleryImgs[activeImg]}
+                alt={product.title}
+                className="w-full h-full object-cover"
+              />
+            </motion.div>
+
+            {/* Thumbnail Strip */}
+            <div className="flex gap-3">
+              {product.galleryImgs.map((img, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActiveImg(i)}
+                  className={`flex-1 aspect-square overflow-hidden border-2 transition-all duration-300 ${
+                    activeImg === i ? 'border-secondary' : 'border-transparent opacity-50 hover:opacity-80'
+                  }`}
+                >
+                  <LazyImage src={img} alt={`View ${i + 1}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Product Info Column */}
+          <div className="lg:col-span-5 lg:sticky lg:top-32">
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+            >
+              {/* Type & Season badge */}
+              <div className="flex gap-3 mb-4 flex-wrap">
+                {product.isNew && (
+                  <span className="font-hanken text-[10px] tracking-widest uppercase text-white bg-secondary px-3 py-1">
+                    New
+                  </span>
+                )}
+                <span className="font-hanken text-[10px] tracking-widest uppercase text-secondary border border-secondary px-3 py-1">
+                  {product.type}
+                </span>
+                {product.season && (
+                  <span className="font-hanken text-[10px] tracking-widest uppercase text-on-surface-variant border border-primary/20 px-3 py-1">
+                    {product.season}
+                  </span>
+                )}
+                {product.tag && (
+                  <span className="font-hanken text-[10px] tracking-widest uppercase text-[#C5A880] border border-[#C5A880]/40 px-3 py-1">
+                    {product.tag}
+                  </span>
+                )}
+              </div>
+
+              <h1 className="font-bodoni text-headline-lg text-primary mb-3 leading-tight">{product.title}</h1>
+              <p className="font-hanken text-label-sm text-secondary uppercase tracking-widest mb-6">{product.category}</p>
+
+              {/* Price */}
+              <div className="flex items-baseline gap-4 mb-8">
+                <span className="font-bodoni text-headline-md text-primary">{formatGHS(product.price)}</span>
+              </div>
+
+              <div className="w-full h-[1px] bg-primary/10 mb-8"></div>
+
+              {/* Description */}
+              <p className="font-hanken text-body-md text-on-surface-variant leading-relaxed mb-8">
+                {product.description}
+              </p>
+
+              {product.artisan && (
+                <div className="flex items-center gap-3 mb-8 py-4 border-y border-primary/10">
+                  <span className="material-symbols-outlined text-secondary text-sm">handshake</span>
+                  <p className="font-hanken text-label-sm text-on-surface-variant italic">{product.artisan}</p>
+                </div>
+              )}
+
+              {/* Size Selection */}
+              <div className="mb-8">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-hanken text-label-sm text-primary uppercase tracking-widest">Select Size</span>
+                  <button className="font-hanken text-label-sm text-secondary underline underline-offset-2">Size Guide</button>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {product.sizes.map((size) => (
+                    <button
+                      key={size}
+                      onClick={() => setSelectedSize(size)}
+                      className={`px-5 py-2.5 font-hanken text-[10px] tracking-widest uppercase border transition-all duration-300 ${
+                        selectedSize === size
+                          ? 'bg-primary text-on-primary border-primary'
+                          : 'border-primary/20 text-primary hover:border-primary'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA */}
+              <motion.button
+                onClick={handleAddToCart}
+                whileHover={{ backgroundColor: '#C5A059' }}
+                className="w-full py-5 bg-primary text-on-primary font-hanken text-label-sm tracking-[0.3em] transition-colors duration-500 mb-4"
+              >
+                ADD TO CART
+              </motion.button>
+
+              <Link
+                to="/bespoke"
+                className="block w-full py-4 border border-primary text-primary text-center font-hanken text-label-sm tracking-widest hover:bg-primary hover:text-on-primary transition-colors duration-500"
+              >
+                COMMISSION BESPOKE VERSION
+              </Link>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Material Details Section */}
+      <section className="px-margin-edge max-w-container-max mx-auto mt-section-gap border-t border-primary/10 pt-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+          <div>
+            <h3 className="font-bodoni text-headline-md text-primary mb-6">Materials & Care</h3>
+            <ul className="space-y-3">
+              {product.details.map((detail, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span className="w-4 h-[1px] bg-secondary mt-3 flex-shrink-0"></span>
+                  <span className="font-hanken text-body-md text-on-surface-variant">{detail}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="md:pl-16 md:border-l border-primary/10">
+            <h3 className="font-bodoni text-headline-md text-primary mb-6">The IKEBEE Promise</h3>
+            <div className="space-y-6">
+              {[
+                { icon: 'handshake', label: 'Fair Artisan Wages', desc: 'Every maker receives above-market compensation.' },
+                { icon: 'eco', label: 'Ethical Sourcing', desc: 'All materials are responsibly sourced within Ghana.' },
+                { icon: 'workspace_premium', label: 'Authenticity Guaranteed', desc: 'Each piece comes with a certificate of provenance.' },
+              ].map(({ icon, label, desc }) => (
+                <div key={label} className="flex items-start gap-4">
+                  <span className="material-symbols-outlined text-secondary">{icon}</span>
+                  <div>
+                    <p className="font-hanken text-label-sm text-primary uppercase tracking-widest mb-1">{label}</p>
+                    <p className="font-hanken text-body-md text-on-surface-variant">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Related Products */}
+      {related.length > 0 && (
+        <section className="px-margin-edge max-w-container-max mx-auto mt-section-gap">
+          <div className="flex justify-between items-end mb-12">
+            <h3 className="font-bodoni text-headline-md text-primary">You May Also Like</h3>
+            <Link to="/collection" className="font-hanken text-label-sm text-secondary border-b border-secondary pb-1 hover:text-primary hover:border-primary transition-all">
+              View All
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-gutter">
+            {related.map((item) => (
+              <Link key={item.id} to={`/collection/${item.slug}`} className="group">
+                <div className="aspect-[3/4] overflow-hidden mb-4 bg-surface-container">
+                  <LazyImage
+                    src={item.img}
+                    alt={item.title}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                </div>
+                <h4 className="font-bodoni text-headline-sm text-primary mb-1">{item.title}</h4>
+                <p className="font-hanken text-label-sm text-secondary">{formatGHS(item.price)}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+};
+
+export default ProductDetail;
