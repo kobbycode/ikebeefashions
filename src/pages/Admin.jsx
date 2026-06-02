@@ -20,7 +20,7 @@ const Admin = () => {
   const [loginError, setLoginError] = useState('');
 
   const [activeTab, setActiveTab] = useState('orders');
-  const [data, setData] = useState({ orders: [], bespoke: [], inquiries: [], newsletter: [], products: [], lookbook: [], users: [], blog: [] });
+  const [data, setData] = useState({ orders: [], bespoke: [], inquiries: [], newsletter: [], products: [], lookbook: [], users: [], blog: [], categories: [] });
   const [loading, setLoading] = useState(true);
 
   // New Product Form State
@@ -44,6 +44,8 @@ const Admin = () => {
   const [blogForm, setBlogForm] = useState({ title: '', content: '', image: '' });
   const [editingBlog, setEditingBlog] = useState(null);
   const [showBlogForm, setShowBlogForm] = useState(false);
+  const [categoryInput, setCategoryInput] = useState('');
+  const [editingCategory, setEditingCategory] = useState(null);
 
   // Lookbook Form State
   const [showLookbookForm, setShowLookbookForm] = useState(false);
@@ -187,7 +189,18 @@ const Admin = () => {
       const blogSnap = await getDocs(blogQ);
       const blogList = blogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      setData(prev => ({ ...prev, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList, users: usersList, blog: blogList }));
+      const catSnap = await getDocs(query(collection(db, 'categories'), orderBy('name', 'asc')));
+      let catList = catSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (catList.length === 0) {
+        const defaults = ['Silk', 'Linen', 'Batik', 'Kente'];
+        catList = [];
+        for (const name of defaults) {
+          const ref = await addDoc(collection(db, 'categories'), { name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), createdAt: serverTimestamp() });
+          catList.push({ id: ref.id, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-') });
+        }
+      }
+
+      setData(prev => ({ ...prev, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList, users: usersList, blog: blogList, categories: catList }));
     } catch (error) {
       console.error("Error fetching data: ", error);
     } finally {
@@ -639,6 +652,31 @@ const Admin = () => {
     fetchData();
   };
 
+  const handleAddCategory = async () => {
+    const name = categoryInput.trim();
+    if (!name) return customAlert('Enter a category name.', 'warning');
+    if (data.categories.find(c => c.name.toLowerCase() === name.toLowerCase())) return customAlert('Category already exists.', 'warning');
+    try {
+      if (editingCategory) {
+        await updateDoc(doc(db, 'categories', editingCategory.id), { name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), updatedAt: serverTimestamp() });
+        await customAlert(`Category updated to "${name}".`, 'success');
+      } else {
+        await addDoc(collection(db, 'categories'), { name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), createdAt: serverTimestamp() });
+        await customAlert(`Category "${name}" created.`, 'success');
+      }
+      setCategoryInput('');
+      setEditingCategory(null);
+      fetchData();
+    } catch { await customAlert('Failed to save category.', 'danger'); }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    const ok = await customConfirm('Delete this category? Products using it will remain unchanged.', 'warning');
+    if (!ok) return;
+    await deleteDoc(doc(db, 'categories', id));
+    fetchData();
+  };
+
   const getNextStatus = (currentStatus) => {
     const idx = statusFlow.indexOf(currentStatus);
     if (idx === -1 || idx >= statusFlow.length - 1) return null;
@@ -799,7 +837,7 @@ const Admin = () => {
 
         {/* Tabs */}
         <div className="flex space-x-8 border-b border-white/10 mb-8 overflow-x-auto">
-          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'users', 'coupons', 'shipping', 'blog', 'cart_recovery', 'reports'].map((tab) => (
+          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'users', 'coupons', 'shipping', 'blog', 'categories', 'cart_recovery', 'reports'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -865,8 +903,13 @@ const Admin = () => {
                       <input type="number" required value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Category (e.g. FW24)</label>
-                      <input type="text" required value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Category</label>
+                      <select required value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]">
+                        <option value="" className="bg-[#1A1A1A]">Select category</option>
+                        {data.categories.map(c => (
+                          <option key={c.id} value={c.name} className="bg-[#1A1A1A]">{c.name}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Tag (e.g. LIMITED EDITION)</label>
@@ -1208,6 +1251,39 @@ const Admin = () => {
                       <div className="flex gap-2 shrink-0">
                         <button onClick={() => { setEditingBlog({ id: post.id, ...post }); setBlogForm({ title: post.title, content: post.content, image: post.image || '' }); setShowBlogForm(true); }} className="text-[#C5A880] text-[10px] uppercase tracking-widest">Edit</button>
                         <button onClick={() => handleDeleteBlog(post.id)} className="text-red-400 text-[10px] uppercase tracking-widest">Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Categories */}
+        {activeTab === 'categories' && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="font-serif text-2xl uppercase tracking-widest">Categories</h2>
+            </div>
+            <div className="bg-[#1A1A1A] border border-white/10 p-6 mb-8 max-w-lg">
+              <div className="flex gap-3">
+                <input type="text" value={categoryInput} onChange={e => setCategoryInput(e.target.value)} placeholder={editingCategory ? 'Edit category name...' : 'New category name...'} className="flex-1 bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" onKeyDown={e => e.key === 'Enter' && handleAddCategory()} />
+                <button onClick={handleAddCategory} className="px-6 py-2 bg-[#C5A880] text-black text-xs uppercase tracking-widest hover:bg-[#B89770] transition-colors whitespace-nowrap">{editingCategory ? 'Update' : 'Add'}</button>
+                {editingCategory && <button onClick={() => { setEditingCategory(null); setCategoryInput(''); }} className="px-4 py-2 border border-white/20 text-white/60 text-xs uppercase tracking-widest hover:text-white transition-colors">Cancel</button>}
+              </div>
+            </div>
+            <div className="bg-[#1A1A1A] border border-white/10 p-6 max-w-lg">
+              {data.categories.length === 0 ? (
+                <p className="text-white/40 text-center py-8 uppercase tracking-widest text-xs">No categories yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {data.categories.map(c => (
+                    <div key={c.id} className="flex justify-between items-center bg-black/30 p-3 border border-white/5">
+                      <span className="text-sm text-white">{c.name}</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setEditingCategory(c); setCategoryInput(c.name); }} className="text-[#C5A880] text-[10px] uppercase tracking-widest">Edit</button>
+                        <button onClick={() => handleDeleteCategory(c.id)} className="text-red-400 text-[10px] uppercase tracking-widest">Delete</button>
                       </div>
                     </div>
                   ))}
