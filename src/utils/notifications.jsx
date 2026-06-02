@@ -118,7 +118,7 @@ export const NotificationBell = ({ recipientId, recipientType, isAdmin = false, 
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           className={`absolute top-full mt-2 max-h-96 overflow-y-auto shadow-xl z-[300] ${base.bg} ${base.border} border ${
-            isAdmin ? 'right-0 w-80' : 'right-0 w-60 md:w-80'
+            isAdmin ? 'right-0 w-80' : 'left-1/2 -translate-x-1/2 w-72 sm:w-80'
           }`}
         >
           <div className={`sticky top-0 ${base.bg} px-4 py-3 border-b ${base.border} flex justify-between items-center`}>

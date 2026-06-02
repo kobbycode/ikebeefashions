@@ -164,7 +164,7 @@ const Collection = () => {
                     </div>
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleWishlist(product); }}
-                      className="absolute top-4 right-4 z-20 w-8 h-8 flex items-center justify-center bg-black/30 hover:bg-black/50 transition-colors rounded-full"
+                      className="absolute top-4 right-4 z-30 w-8 h-8 flex items-center justify-center bg-black/30 hover:bg-black/50 transition-colors rounded-full"
                       title={isInWishlist(product.id) ? 'Remove from wishlist' : 'Add to wishlist'}
                     >
                       <span className="material-symbols-outlined text-sm text-white">{isInWishlist(product.id) ? 'favorite' : 'favorite_border'}</span>

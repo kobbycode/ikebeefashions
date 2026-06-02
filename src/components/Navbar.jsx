@@ -5,6 +5,7 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useAlert } from '../context/AlertContext';
 import { NotificationBell } from '../utils/notifications';
+import { useWishlist } from '../context/WishlistContext';
 
 const navLinks = [
   { to: '/collection', label: 'Collection' },
@@ -19,6 +20,7 @@ const Navbar = () => {
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
   const { isCartOpen, setIsCartOpen, cart, cartCount, removeFromCart, updateQuantity, cartTotal } = useCart();
+  const { wishlistCount, isInWishlist } = useWishlist();
   const { user, logout } = useAuth();
   const { showConfirm } = useAlert();
   const location = useLocation();
@@ -84,11 +86,11 @@ const Navbar = () => {
           {/* Right Controls */}
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
             {user && <NotificationBell recipientId={user.uid} recipientType="customer" onNotificationClick={handleNotificationClick} />}
-            <Link to="/compare" className="text-primary hover:text-secondary transition-colors duration-300" aria-label="Compare">
-              <span className="material-symbols-outlined">compare_arrows</span>
-            </Link>
-            <Link to="/wishlist" className="text-primary hover:text-secondary transition-colors duration-300" aria-label="Wishlist">
+            <Link to="/wishlist" className="text-primary hover:text-secondary transition-colors duration-300 relative" aria-label="Wishlist">
               <span className="material-symbols-outlined">favorite</span>
+              {wishlistCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-secondary text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-bold">{wishlistCount}</span>
+              )}
             </Link>
             <div className="relative" ref={accountRef}>
               <button
@@ -252,6 +254,14 @@ const Navbar = () => {
                     >
                       <span className="material-symbols-outlined">favorite</span>
                       Wishlist
+                    </Link>
+                    <Link
+                      to="/compare"
+                      onClick={() => setMobileOpen(false)}
+                      className="font-bodoni text-headline-md text-primary hover:text-secondary transition-colors duration-300 flex items-center gap-3"
+                    >
+                      <span className="material-symbols-outlined">compare_arrows</span>
+                      Compare
                     </Link>
                     <Link
                       to="/account"
