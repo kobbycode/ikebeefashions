@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { collection, getDocs, onSnapshot, orderBy, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
+import { collection, getDocs, getDoc, onSnapshot, orderBy, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth, storage, loginAdmin, logoutAdmin } from '../services/api';
@@ -20,13 +20,15 @@ const Admin = () => {
   const [loginError, setLoginError] = useState('');
 
   const [activeTab, setActiveTab] = useState('orders');
-  const [data, setData] = useState({ orders: [], bespoke: [], inquiries: [], newsletter: [], products: [], lookbook: [] });
+  const [data, setData] = useState({ orders: [], bespoke: [], inquiries: [], newsletter: [], products: [], lookbook: [], users: [], blog: [] });
   const [loading, setLoading] = useState(true);
 
   // New Product Form State
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
+  const defaultSizeStock = { XS: 0, S: 0, M: 0, L: 0, XL: 0, Custom: 0 };
+  const [sizeStock, setSizeStock] = useState({ ...defaultSizeStock });
   const [newProductImage, setNewProductImage] = useState(null);
   const [newProductGallery, setNewProductGallery] = useState([]);
   const [existingGalleryUrls, setExistingGalleryUrls] = useState([]);
@@ -36,8 +38,12 @@ const Admin = () => {
   const [couponCode, setCouponCode] = useState('');
   const [couponDiscount, setCouponDiscount] = useState('');
   const [couponMinAmount, setCouponMinAmount] = useState('');
+  const [couponMaxUses, setCouponMaxUses] = useState('');
   const [coupons, setCoupons] = useState([]);
   const [showCouponForm, setShowCouponForm] = useState(false);
+  const [blogForm, setBlogForm] = useState({ title: '', content: '', image: '' });
+  const [editingBlog, setEditingBlog] = useState(null);
+  const [showBlogForm, setShowBlogForm] = useState(false);
 
   // Lookbook Form State
   const [showLookbookForm, setShowLookbookForm] = useState(false);
@@ -165,7 +171,23 @@ const Admin = () => {
       const couponSnap = await getDocs(collection(db, 'coupons'));
       setCoupons(couponSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      setData(prev => ({ ...prev, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList }));
+      const usersSnap = await getDocs(query(collection(db, 'users'), orderBy('lastLogin', 'desc')));
+      const usersList = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      try {
+        const shipSnap = await getDoc(doc(db, 'config', 'shipping'));
+        if (shipSnap.exists()) {
+          const s = shipSnap.data();
+          setShippingConfig(s);
+          setShippingForm({ local: s.local ?? 50, international: s.international ?? 300, freeThreshold: s.freeThreshold ?? 0, taxRate: s.taxRate ?? 5 });
+        }
+      } catch {/* empty */}
+
+      const blogQ = query(collection(db, 'blog'), orderBy('createdAt', 'desc'));
+      const blogSnap = await getDocs(blogQ);
+      const blogList = blogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      setData(prev => ({ ...prev, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList, users: usersList, blog: blogList }));
     } catch (error) {
       console.error("Error fetching data: ", error);
     } finally {
@@ -208,7 +230,8 @@ const Admin = () => {
         tag: newProduct.tag || '',
         isNew: Boolean(newProduct.isNew),
         details: newProduct.details,
-        stock: newProduct.stock ? parseInt(newProduct.stock, 10) : 0,
+        stock: Object.values(sizeStock).reduce((a, b) => a + b, 0),
+        stockPerSize: sizeStock,
         colors: newProduct.colors ? newProduct.colors.split(',').map(c => ({ name: c.trim() })).filter(c => c.name) : [],
         slug: newProduct.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       };
@@ -229,7 +252,8 @@ const Admin = () => {
 
       setShowProductForm(false);
       setEditingProduct(null);
-      setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+      setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
+      setSizeStock({ ...defaultSizeStock });
       setNewProductImage(null);
       setNewProductGallery([]);
       setExistingGalleryUrls([]);
@@ -260,6 +284,7 @@ const Admin = () => {
       stock: prod.stock != null ? String(prod.stock) : '',
       colors: prod.colors?.map(c => c.name).join(', ') || ''
     });
+    setSizeStock(prod.stockPerSize ? { ...defaultSizeStock, ...prod.stockPerSize } : { ...defaultSizeStock });
     setNewProductImage(null);
     setNewProductGallery([]);
     setExistingGalleryUrls(prod.galleryImgs?.filter(u => u) || []);
@@ -376,7 +401,7 @@ const Admin = () => {
     }
   };
 
-  const statusFlow = ['pending', 'packing', 'delivering', 'delivered'];
+  const statusFlow = ['pending', 'packing', 'delivering', 'delivered', 'return_requested', 'returned', 'refunded'];
 
   const getStatusColor = (status) => {
     const map = { pending: 'bg-yellow-900/40 text-yellow-400', packing: 'bg-blue-900/40 text-blue-400', delivering: 'bg-purple-900/40 text-purple-400', delivered: 'bg-green-900/40 text-green-400', cancelled: 'bg-red-900/40 text-red-400' };
@@ -422,6 +447,10 @@ const Admin = () => {
 
   const [trackingInput, setTrackingInput] = useState('');
   const [editingTracking, setEditingTracking] = useState(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundingOrder, setRefundingOrder] = useState(null);
+  const [shippingConfig, setShippingConfig] = useState({ local: 50, international: 300, freeThreshold: 0, taxRate: 5 });
+  const [shippingForm, setShippingForm] = useState({ local: 50, international: 300, freeThreshold: 0, taxRate: 5 });
   const [bulkPrice, setBulkPrice] = useState('');
   const handleBulkPriceEdit = async () => {
     if (!bulkPrice || isNaN(bulkPrice)) return await customAlert('Enter a valid price.', 'warning');
@@ -476,6 +505,67 @@ const Admin = () => {
     }
   };
 
+  const handleRefundOrder = async () => {
+    if (!refundingOrder) return;
+    const orderItem = data.orders.find(o => o.id === refundingOrder);
+    const amount = parseFloat(refundAmount) || 0;
+    const ok = await customConfirm(`Process refund of GHS ${amount.toFixed(2)} for order #${refundingOrder.slice(0, 8).toUpperCase()}?`, 'warning');
+    if (!ok) return;
+    try {
+      const orderRef = doc(db, 'orders', refundingOrder);
+      await updateDoc(orderRef, {
+        status: 'refunded',
+        refundAmount: amount,
+        refundedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      const orderItems = orderItem?.cart || orderItem?.items || [];
+      for (const item of orderItems) {
+        if (item.productId && item.size && item.quantity) {
+          try {
+            const prodRef = doc(db, 'products', item.productId);
+            const prodSnap = await getDoc(prodRef);
+            if (prodSnap.exists()) {
+              const prodData = prodSnap.data();
+              const stockPerSize = { ...(prodData.stockPerSize || {}) };
+              if (stockPerSize[item.size] !== undefined) {
+                stockPerSize[item.size] = Number(stockPerSize[item.size]) + Number(item.quantity);
+                await updateDoc(prodRef, { stockPerSize, updatedAt: serverTimestamp() });
+              }
+            }
+          } catch {/* empty */}
+        }
+      }
+      if (orderItem?.userId) {
+        createNotification({
+          type: 'order_status',
+          message: `Refund of GHS ${amount.toFixed(2)} processed for your order`,
+          recipientId: orderItem.userId,
+          recipientType: 'customer',
+          orderId: refundingOrder,
+        });
+      }
+      await customAlert(`Refund of GHS ${amount.toFixed(2)} processed.`, 'success');
+      setRefundingOrder(null);
+      setRefundAmount('');
+      fetchData();
+    } catch { await customAlert('Refund failed.', 'danger'); }
+  };
+
+  const handleSaveShipping = async () => {
+    try {
+      await setDoc(doc(db, 'config', 'shipping'), {
+        local: Number(shippingForm.local) || 0,
+        international: Number(shippingForm.international) || 0,
+        freeThreshold: Number(shippingForm.freeThreshold) || 0,
+        taxRate: Number(shippingForm.taxRate) || 0,
+        updatedAt: serverTimestamp(),
+      });
+      setShippingConfig({ ...shippingForm });
+      await customAlert('Shipping rates saved.', 'success');
+    } catch { await customAlert('Failed to save shipping rates.', 'danger'); }
+  };
+
   const dismissNotification = (id) => {
     setPendingNotifications(prev => {
       const updated = prev.filter(p => p.id !== id);
@@ -494,10 +584,13 @@ const Admin = () => {
         code: couponCode.toUpperCase(),
         discount: parseFloat(couponDiscount),
         minAmount: couponMinAmount ? parseFloat(couponMinAmount) : 0,
+        maxUses: couponMaxUses ? parseInt(couponMaxUses, 10) : 0,
+        usedCount: 0,
+        usedBy: [],
         createdAt: serverTimestamp(),
       });
       await customAlert(`Coupon "${couponCode.toUpperCase()}" created.`, 'success');
-      setCouponCode(''); setCouponDiscount(''); setCouponMinAmount(''); setShowCouponForm(false);
+      setCouponCode(''); setCouponDiscount(''); setCouponMinAmount(''); setCouponMaxUses(''); setShowCouponForm(false);
       fetchData();
     } catch {
       await customAlert('Failed to create coupon.', 'danger');
@@ -508,6 +601,37 @@ const Admin = () => {
     const ok = await customConfirm('Delete this coupon?', 'warning');
     if (!ok) return;
     await deleteDoc(doc(db, 'coupons', id));
+    fetchData();
+  };
+
+  const handleSaveBlog = async (e) => {
+    e.preventDefault();
+    if (!blogForm.title || !blogForm.content) return customAlert('Title and content are required.', 'warning');
+    try {
+      if (editingBlog) {
+        await updateDoc(doc(db, 'blog', editingBlog.id), {
+          ...blogForm,
+          updatedAt: serverTimestamp(),
+        });
+        await customAlert('Blog post updated.', 'success');
+      } else {
+        await addDoc(collection(db, 'blog'), {
+          ...blogForm,
+          createdAt: serverTimestamp(),
+        });
+        await customAlert('Blog post created.', 'success');
+      }
+      setBlogForm({ title: '', content: '', image: '' });
+      setEditingBlog(null);
+      setShowBlogForm(false);
+      fetchData();
+    } catch { await customAlert('Failed to save blog post.', 'danger'); }
+  };
+
+  const handleDeleteBlog = async (id) => {
+    const ok = await customConfirm('Delete this blog post?', 'warning');
+    if (!ok) return;
+    await deleteDoc(doc(db, 'blog', id));
     fetchData();
   };
 
@@ -623,6 +747,20 @@ const Admin = () => {
           </div>
         </div>
 
+        {/* Low Stock Alert */}
+        {(() => {
+          const lowStock = data.products.filter(p => (p.totalStock ?? (p.stockPerSize ? Object.values(p.stockPerSize).reduce((a, b) => a + Number(b), 0) : Number(p.stock || 0))) <= 3);
+          if (!lowStock.length) return null;
+          return (
+            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 flex items-center gap-3">
+              <span className="material-symbols-outlined text-amber-400 text-lg">priority_high</span>
+              <p className="text-xs text-amber-400 uppercase tracking-widest">
+                <span className="font-semibold">{lowStock.length}</span> product{lowStock.length > 1 ? 's' : ''} {lowStock.length > 1 ? 'are' : 'is'} low on stock — <span className="text-white/70 normal-case">{lowStock.map(p => p.title || p.name).slice(0, 3).join(', ')}{lowStock.length > 3 ? '...' : ''}</span>
+              </p>
+            </div>
+          );
+        })()}
+
         {/* Analytics Overview */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {[
@@ -657,7 +795,7 @@ const Admin = () => {
 
         {/* Tabs */}
         <div className="flex space-x-8 border-b border-white/10 mb-8 overflow-x-auto">
-          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'coupons', 'cart_recovery', 'reports'].map((tab) => (
+          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'users', 'coupons', 'shipping', 'blog', 'cart_recovery', 'reports'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -688,6 +826,7 @@ const Admin = () => {
                     setShowProductForm(!showProductForm);
                     setEditingProduct(null);
                     setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
+                    setSizeStock({ ...defaultSizeStock });
                     setNewProductImage(null);
                     setNewProductGallery([]);
                     setExistingGalleryUrls([]);
@@ -773,8 +912,15 @@ const Admin = () => {
                       </label>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Stock Quantity</label>
-                      <input type="number" min="0" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Stock Per Size</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {['XS', 'S', 'M', 'L', 'XL', 'Custom'].map(s => (
+                          <div key={s} className="flex items-center gap-1">
+                            <span className="text-[10px] text-white/50 w-12">{s}</span>
+                            <input type="number" min="0" value={sizeStock[s]} onChange={e => setSizeStock(prev => ({ ...prev, [s]: Number(e.target.value) }))} className="w-full bg-transparent border-b border-white/20 pb-1 text-white text-xs focus:outline-none focus:border-[#C5A880]" />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <div>
                       <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Colors (comma-separated)</label>
@@ -939,6 +1085,10 @@ const Admin = () => {
                     <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Min. Amount (GHS) — optional</label>
                     <input type="number" min="0" value={couponMinAmount} onChange={e => setCouponMinAmount(e.target.value)} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
                   </div>
+                  <div>
+                    <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Max Uses — 0 for unlimited</label>
+                    <input type="number" min="0" value={couponMaxUses} onChange={e => setCouponMaxUses(e.target.value)} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                  </div>
                 </div>
                 <button type="submit" className="mt-6 bg-white text-black px-8 py-3 text-xs uppercase tracking-widest font-semibold hover:bg-[#C5A880] hover:text-white transition-colors">Create Coupon</button>
               </form>
@@ -953,9 +1103,95 @@ const Admin = () => {
                     <div key={c.id} className="flex justify-between items-center bg-black/30 p-4 border border-white/5">
                       <div>
                         <span className="text-[#C5A880] font-mono text-sm font-bold">{c.code}</span>
-                        <span className="text-white/60 text-xs ml-4">{c.discount}% off{c.minAmount > 0 ? ` (min. GHS ${c.minAmount.toLocaleString()})` : ''}</span>
+                        <span className="text-white/60 text-xs ml-4">{c.discount}% off{c.minAmount > 0 ? ` (min. GHS ${c.minAmount.toLocaleString()})` : ''} <span className="text-white/40">{c.maxUses > 0 ? ` · ${c.usedCount || 0}/${c.maxUses} used` : ''}</span></span>
                       </div>
                       <button onClick={() => handleDeleteCoupon(c.id)} className="text-red-400 hover:text-red-300 text-xs uppercase tracking-widest cursor-pointer bg-transparent border-none p-0">Delete</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Shipping Config */}
+        {activeTab === 'shipping' && (
+          <div className="mb-8">
+            <h2 className="font-serif text-2xl uppercase tracking-widest mb-6">Shipping Rates</h2>
+            <div className="bg-[#1A1A1A] border border-white/10 p-6 max-w-lg">
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Local Shipping (GHS) — within Ghana</label>
+                  <input type="number" step="0.01" value={shippingForm.local} onChange={e => setShippingForm({ ...shippingForm, local: e.target.value })} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">International Shipping (GHS)</label>
+                  <input type="number" step="0.01" value={shippingForm.international} onChange={e => setShippingForm({ ...shippingForm, international: e.target.value })} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Free Shipping Threshold (GHS) — 0 to disable</label>
+                  <input type="number" step="0.01" value={shippingForm.freeThreshold} onChange={e => setShippingForm({ ...shippingForm, freeThreshold: e.target.value })} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Tax Rate (%) — applied to subtotal</label>
+                  <input type="number" step="0.1" value={shippingForm.taxRate} onChange={e => setShippingForm({ ...shippingForm, taxRate: e.target.value })} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                </div>
+                <button onClick={handleSaveShipping} className="px-6 py-3 bg-[#C5A880] text-black text-xs uppercase tracking-widest hover:bg-[#B89770] transition-colors">Save Rates</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Blog */}
+        {activeTab === 'blog' && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="font-serif text-2xl uppercase tracking-widest">Blog Posts</h2>
+              <button onClick={() => { setShowBlogForm(true); setEditingBlog(null); setBlogForm({ title: '', content: '', image: '' }); }} className="px-6 py-3 border border-[#C5A880] text-[#C5A880] text-xs uppercase tracking-widest hover:bg-[#C5A880] hover:text-white transition-colors">New Post</button>
+            </div>
+            <AnimatePresence>
+              {showBlogForm && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <form onSubmit={handleSaveBlog} className="bg-[#1A1A1A] p-6 border border-white/10 mb-8">
+                    <div className="grid grid-cols-1 gap-6">
+                      <div>
+                        <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Title</label>
+                        <input type="text" required value={blogForm.title} onChange={e => setBlogForm({ ...blogForm, title: e.target.value })} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Content</label>
+                        <textarea rows="8" required value={blogForm.content} onChange={e => setBlogForm({ ...blogForm, content: e.target.value })} className="w-full bg-transparent border border-white/20 p-3 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Image URL (optional)</label>
+                        <input type="url" value={blogForm.image} onChange={e => setBlogForm({ ...blogForm, image: e.target.value })} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                      </div>
+                    </div>
+                    <div className="flex gap-4 mt-6">
+                      <button type="submit" className="bg-white text-black px-8 py-3 text-xs uppercase tracking-widest font-semibold hover:bg-[#C5A880] hover:text-white transition-colors">{editingBlog ? 'Update' : 'Publish'}</button>
+                      <button type="button" onClick={() => { setShowBlogForm(false); setEditingBlog(null); setBlogForm({ title: '', content: '', image: '' }); }} className="px-6 py-3 border border-white/20 text-white/60 text-xs uppercase tracking-widest hover:text-white transition-colors">Cancel</button>
+                    </div>
+                  </form>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div className="bg-[#1A1A1A] border border-white/10 p-6">
+              {data.blog.length === 0 ? (
+                <p className="text-white/40 text-center py-8 uppercase tracking-widest text-xs">No blog posts yet.</p>
+              ) : (
+                <div className="space-y-4">
+                  {data.blog.map(post => (
+                    <div key={post.id} className="flex items-start gap-4 bg-black/30 p-4 border border-white/5">
+                      {post.image && <img src={post.image} alt="" className="w-20 h-20 object-cover" />}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-white truncate">{post.title}</h3>
+                        <p className="text-[10px] text-white/40 mt-1">{post.createdAt?.toDate ? post.createdAt.toDate().toLocaleDateString() : ''}</p>
+                        <p className="text-xs text-white/60 mt-2 line-clamp-2">{post.content}</p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button onClick={() => { setEditingBlog({ id: post.id, ...post }); setBlogForm({ title: post.title, content: post.content, image: post.image || '' }); setShowBlogForm(true); }} className="text-[#C5A880] text-[10px] uppercase tracking-widest">Edit</button>
+                        <button onClick={() => handleDeleteBlog(post.id)} className="text-red-400 text-[10px] uppercase tracking-widest">Delete</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1007,6 +1243,99 @@ const Admin = () => {
                   <p className="font-serif text-3xl text-green-400">{data.orders.filter(o => o.status === 'delivered').length}</p>
                 </div>
               </div>
+              {data.orders.length > 0 && (() => {
+                const statusCounts = {};
+                const payMethodCounts = {};
+                let maxStatus = 0;
+                for (const o of data.orders) {
+                  statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
+                  const pm = o.paymentMethod || 'other';
+                  payMethodCounts[pm] = (payMethodCounts[pm] || 0) + 1;
+                  if (statusCounts[o.status] > maxStatus) maxStatus = statusCounts[o.status];
+                }
+                const statusColors = { pending: 'bg-yellow-500', packing: 'bg-blue-500', delivering: 'bg-indigo-500', delivered: 'bg-green-500', cancelled: 'bg-red-500', refunded: 'bg-amber-500', return_requested: 'bg-orange-500', returned: 'bg-purple-500' };
+                const statusLabels = { pending: 'Pending', packing: 'Packing', delivering: 'Delivering', delivered: 'Delivered', cancelled: 'Cancelled', refunded: 'Refunded', return_requested: 'Return Requested', returned: 'Returned' };
+                const ordersByMonth = {};
+                for (const o of data.orders) {
+                  const d = o.createdAt?.toDate ? o.createdAt.toDate() : new Date();
+                  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+                  ordersByMonth[key] = (ordersByMonth[key] || 0) + 1;
+                }
+                const monthKeys = Object.keys(ordersByMonth).sort();
+                const maxMonth = Math.max(...Object.values(ordersByMonth), 1);
+                const topProducts = {};
+                for (const o of data.orders) {
+                  const items = o.cart || o.items || [];
+                  for (const item of items) {
+                    const name = item.name || item.title || item.productId?.slice(0,8) || 'Unknown';
+                    topProducts[name] = (topProducts[name] || 0) + (item.quantity || 1);
+                  }
+                }
+                const topSorted = Object.entries(topProducts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                const topMax = topSorted.length > 0 ? Math.max(...topSorted.map(([,c]) => c)) : 1;
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div className="border border-white/10 p-6">
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest mb-4">Order Status Distribution</p>
+                      <div className="space-y-2">
+                        {Object.entries(statusCounts).map(([status, count]) => (
+                          <div key={status} className="flex items-center gap-3">
+                            <span className="w-24 text-[10px] uppercase text-white/60 tracking-widest">{statusLabels[status] || status}</span>
+                            <div className="flex-1 bg-white/5 h-5 relative">
+                              <div className={`h-full ${statusColors[status] || 'bg-white/30'} transition-all`} style={{ width: `${(count / maxStatus) * 100}%` }}></div>
+                            </div>
+                            <span className="text-xs text-white w-6 text-right">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="border border-white/10 p-6">
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest mb-4">Orders by Month</p>
+                      <div className="space-y-2">
+                        {monthKeys.map(key => (
+                          <div key={key} className="flex items-center gap-3">
+                            <span className="w-16 text-[10px] text-white/60">{key}</span>
+                            <div className="flex-1 bg-white/5 h-5 relative">
+                              <div className="h-full bg-[#C5A880] transition-all" style={{ width: `${(ordersByMonth[key] / maxMonth) * 100}%` }}></div>
+                            </div>
+                            <span className="text-xs text-white w-6 text-right">{ordersByMonth[key]}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {topSorted.length > 0 && (
+                      <div className="border border-white/10 p-6">
+                        <p className="text-[10px] text-white/40 uppercase tracking-widest mb-4">Top 5 Products</p>
+                        <div className="space-y-2">
+                          {topSorted.map(([name, count]) => (
+                            <div key={name} className="flex items-center gap-3">
+                              <span className="flex-1 text-xs text-white/80 truncate">{name}</span>
+                              <div className="w-24 bg-white/5 h-5 relative">
+                                <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(count / topMax) * 100}%` }}></div>
+                              </div>
+                              <span className="text-xs text-white w-6 text-right">{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="border border-white/10 p-6">
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest mb-4">Payment Method Breakdown</p>
+                      <div className="space-y-2">
+                        {Object.entries(payMethodCounts).map(([method, count]) => (
+                          <div key={method} className="flex items-center gap-3">
+                            <span className="w-28 text-[10px] uppercase text-white/60 tracking-widest">{method.replace(/_/g, ' ')}</span>
+                            <div className="flex-1 bg-white/5 h-5 relative">
+                              <div className="h-full bg-cyan-500 transition-all" style={{ width: `${(count / data.orders.length) * 100}%` }}></div>
+                            </div>
+                            <span className="text-xs text-white w-6 text-right">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               <button onClick={exportCSV} className="px-6 py-3 border border-[#C5A880] text-[#C5A880] text-xs uppercase tracking-widest hover:bg-[#C5A880] hover:text-white transition-colors">Export CSV</button>
             </div>
           </div>
@@ -1087,6 +1416,16 @@ const Admin = () => {
                       {activeTab === 'newsletter' && (
                         <th className="pb-4 font-normal">Subscriber Email</th>
                       )}
+                      {activeTab === 'users' && (
+                        <>
+                          <th className="pb-4 font-normal">Email</th>
+                          <th className="pb-4 font-normal">Name</th>
+                          <th className="pb-4 font-normal">Orders</th>
+                          <th className="pb-4 font-normal">Spent</th>
+                          <th className="pb-4 font-normal">Last Login</th>
+                          <th className="pb-4 font-normal">Credit</th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -1130,12 +1469,20 @@ const Admin = () => {
                                     → {getNextStatus(item.status)}
                                   </button>
                                 )}
-                                {item.status !== 'delivered' && item.status !== 'cancelled' && (
+                                {item.status !== 'delivered' && item.status !== 'cancelled' && item.status !== 'refunded' && (
                                   <button
                                     onClick={() => handleCancelOrder(item.id)}
                                     className="text-red-400 hover:text-white text-[10px] uppercase tracking-widest border border-red-400/30 hover:border-red-400 px-2 py-1 transition-colors whitespace-nowrap"
                                   >
                                     Cancel
+                                  </button>
+                                )}
+                                {item.status === 'delivered' && (
+                                  <button
+                                    onClick={() => { setRefundingOrder(item.id); setRefundAmount(String(item.totalAmount || item.total || '')); }}
+                                    className="text-amber-400 hover:text-white text-[10px] uppercase tracking-widest border border-amber-400/30 hover:border-amber-400 px-2 py-1 transition-colors whitespace-nowrap"
+                                  >
+                                    Refund
                                   </button>
                                 )}
                               </div>
@@ -1171,6 +1518,29 @@ const Admin = () => {
                         
                         {activeTab === 'newsletter' && (
                           <td className="py-5 text-sm font-semibold">{item.email}</td>
+                        )}
+                        
+                        {activeTab === 'users' && (
+                          <>
+                            <td className="py-5 text-sm font-semibold">{item.email}</td>
+                            <td className="py-5 text-sm text-white/70">{item.displayName || item.email?.split('@')[0]}</td>
+                            <td className="py-5 text-sm text-white/70">{item.totalOrders ?? 0}</td>
+                            <td className="py-5 text-sm text-white/70">GHS {Number(item.totalSpent || 0).toLocaleString()}</td>
+                            <td className="py-5 text-sm text-white/50">{item.lastLogin?.toDate ? item.lastLogin.toDate().toLocaleDateString() : item.lastLogin || '-'}</td>
+                            <td className="py-5">
+                              <input type="number" step="0.01" defaultValue={Number(item.storeCredit || 0).toFixed(2)}
+                                onBlur={async (e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  try {
+                                    await setDoc(doc(db, 'users', item.email?.toLowerCase()), { storeCredit: val }, { merge: true });
+                                    await customAlert(`Store credit updated for ${item.email}`, 'success');
+                                    fetchData();
+                                  } catch { await customAlert('Failed to update store credit.', 'danger'); }
+                                }}
+                                className="w-24 bg-transparent border border-white/10 px-2 py-1 text-xs text-white text-center focus:outline-none focus:border-[#C5A880]"
+                              />
+                            </td>
+                          </>
                         )}
                       </motion.tr>
                     ))}
@@ -1317,11 +1687,27 @@ const Admin = () => {
         )}
       </AnimatePresence>
 
+      {/* Refund Modal */}
+      <AnimatePresence>
+        {refundingOrder && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-[#1A1A1A] border border-white/10 p-8 max-w-md w-full">
+              <h3 className="font-serif text-xl uppercase tracking-widest mb-6">Process Refund</h3>
+              <p className="text-sm text-white/60 mb-4">Order #{refundingOrder.slice(0, 8).toUpperCase()}</p>
+              <div className="mb-6">
+                <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Refund Amount (GHS)</label>
+                <input type="number" step="0.01" value={refundAmount} onChange={e => setRefundAmount(e.target.value)} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+              </div>
+              <div className="flex gap-4 justify-end">
+                <button onClick={() => { setRefundingOrder(null); setRefundAmount(''); }} className="px-6 py-3 border border-white/20 text-white/60 text-xs uppercase tracking-widest hover:text-white transition-colors">Cancel</button>
+                <button onClick={handleRefundOrder} className="px-6 py-3 bg-amber-500 text-white text-xs uppercase tracking-widest hover:bg-amber-600 transition-colors">Process Refund</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
-
-// We need AnimatePresence for the form
-import { AnimatePresence } from 'framer-motion';
 
 export default Admin;

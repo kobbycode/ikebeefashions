@@ -11,6 +11,7 @@ const navLinks = [
   { to: '/lookbook', label: 'Lookbook' },
   { to: '/bespoke', label: 'Bespoke' },
   { to: '/heritage', label: 'Heritage' },
+  { to: '/blog', label: 'Journal' },
 ];
 
 const Navbar = () => {
@@ -83,6 +84,9 @@ const Navbar = () => {
           {/* Right Controls */}
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
             {user && <NotificationBell recipientId={user.uid} recipientType="customer" onNotificationClick={handleNotificationClick} />}
+            <Link to="/compare" className="text-primary hover:text-secondary transition-colors duration-300" aria-label="Compare">
+              <span className="material-symbols-outlined">compare_arrows</span>
+            </Link>
             <Link to="/wishlist" className="text-primary hover:text-secondary transition-colors duration-300" aria-label="Wishlist">
               <span className="material-symbols-outlined">favorite</span>
             </Link>

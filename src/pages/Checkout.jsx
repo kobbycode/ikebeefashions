@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../context/CartContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { db, auth } from '../services/api';
-import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where, increment, setDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { PaystackButton } from 'react-paystack';
 import { useAlert } from '../context/AlertContext';
@@ -34,6 +34,16 @@ const Checkout = () => {
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [couponError, setCouponError] = useState('');
   const [couponApplied, setCouponApplied] = useState(false);
+  const [couponDocId, setCouponDocId] = useState(null);
+  const [shippingConfig, setShippingConfig] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'shipping'));
+        if (snap.exists()) setShippingConfig(snap.data());
+      } catch {/* empty */}
+    })();
+  }, []);
   const [formData, setFormData] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(SAVED_DETAILS_KEY) || 'null');
@@ -64,9 +74,13 @@ const Checkout = () => {
   });
   const [paymentMethod, setPaymentMethod] = useState('paystack');
 
-  const shippingFee = formData.country ? (formData.country === 'GH' ? 50 : 300) : 0;
-  const tax = cartTotal * 0.05;
-  const finalTotalWithoutDiscount = cartTotal + shippingFee + tax;
+  const sc = shippingConfig || {};
+  const shippingFee = formData.country ? (formData.country === 'GH' ? Number(sc.local ?? 50) : Number(sc.international ?? 300)) : 0;
+  const freeThreshold = Number(sc.freeThreshold || 0);
+  const finalShipping = freeThreshold > 0 && cartTotal >= freeThreshold ? 0 : shippingFee;
+  const taxRate = Number(sc.taxRate ?? 5) / 100;
+  const tax = cartTotal * taxRate;
+  const finalTotalWithoutDiscount = cartTotal + finalShipping + tax;
   const discountAmount = couponApplied ? (finalTotalWithoutDiscount * couponDiscount) / 100 : 0;
   const finalTotal = finalTotalWithoutDiscount - discountAmount;
   const isFormValid = formData.email && formData.firstName && formData.address && formData.city && formData.country && formData.postalCode && formData.phone && Object.keys(fieldErrors).length === 0;
@@ -117,7 +131,7 @@ const Checkout = () => {
         },
         items: cart,
         subtotal: cartTotal,
-        shipping: shippingFee,
+        shipping: finalShipping,
         tax: tax,
         totalAmount: finalTotal,
         status: 'pending',
@@ -127,6 +141,41 @@ const Checkout = () => {
       };
 
       const docRef = await addDoc(collection(db, 'orders'), order);
+      
+      for (const item of cart) {
+        if (item.productId && item.size) {
+          try {
+            const prodRef = doc(db, 'products', item.productId);
+            const prodSnap = await getDocs(query(collection(db, 'products'), where('__name__', '==', item.productId)));
+            if (!prodSnap.empty) {
+              const prodData = prodSnap.docs[0].data();
+              const stockPerSize = { ...(prodData.stockPerSize || {}) };
+              if (stockPerSize[item.size] !== undefined) {
+                stockPerSize[item.size] = Math.max(0, Number(stockPerSize[item.size]) - item.quantity);
+                await updateDoc(prodRef, { stockPerSize, updatedAt: serverTimestamp() });
+              }
+            }
+          } catch {/* empty */}
+        }
+      }
+      if (user?.email) {
+        try {
+          const userDocRef = doc(collection(db, 'users'), user.email.toLowerCase());
+          await setDoc(userDocRef, {
+            totalOrders: increment(1),
+            totalSpent: increment(Number(finalTotal)),
+            lastLogin: serverTimestamp(),
+          }, { merge: true });
+        } catch {/* empty */}
+      }
+      if (couponDocId) {
+        try {
+          await updateDoc(doc(db, 'coupons', couponDocId), {
+            usedCount: increment(1),
+            usedBy: arrayUnion(user?.email?.toLowerCase() || 'guest'),
+          });
+        } catch {/* empty */}
+      }
       
       setOrderId(docRef.id);
       setSuccess(true);
@@ -182,7 +231,7 @@ const Checkout = () => {
         },
         items: cart,
         subtotal: cartTotal,
-        shipping: shippingFee,
+        shipping: finalShipping,
         tax: tax,
         totalAmount: finalTotal,
         status: 'pending',
@@ -192,6 +241,41 @@ const Checkout = () => {
       };
 
       const docRef = await addDoc(collection(db, 'orders'), order);
+      
+      for (const item of cart) {
+        if (item.productId && item.size) {
+          try {
+            const prodRef = doc(db, 'products', item.productId);
+            const prodSnap = await getDocs(query(collection(db, 'products'), where('__name__', '==', item.productId)));
+            if (!prodSnap.empty) {
+              const prodData = prodSnap.docs[0].data();
+              const stockPerSize = { ...(prodData.stockPerSize || {}) };
+              if (stockPerSize[item.size] !== undefined) {
+                stockPerSize[item.size] = Math.max(0, Number(stockPerSize[item.size]) - item.quantity);
+                await updateDoc(prodRef, { stockPerSize, updatedAt: serverTimestamp() });
+              }
+            }
+          } catch {/* empty */}
+        }
+      }
+      if (user?.email) {
+        try {
+          const userDocRef = doc(collection(db, 'users'), user.email.toLowerCase());
+          await setDoc(userDocRef, {
+            totalOrders: increment(1),
+            totalSpent: increment(Number(finalTotal)),
+            lastLogin: serverTimestamp(),
+          }, { merge: true });
+        } catch {/* empty */}
+      }
+      if (couponDocId) {
+        try {
+          await updateDoc(doc(db, 'coupons', couponDocId), {
+            usedCount: increment(1),
+            usedBy: arrayUnion(user?.email?.toLowerCase() || 'guest'),
+          });
+        } catch {/* empty */}
+      }
       
       setOrderId(docRef.id);
       setSuccess(true);
@@ -371,11 +455,21 @@ const Checkout = () => {
       const q = query(collection(db, 'coupons'), where('code', '==', couponCode.trim().toUpperCase()));
       const snap = await getDocs(q);
       if (snap.empty) { setCouponError('Invalid coupon code.'); return; }
-      const c = snap.docs[0].data();
+      const docRef = snap.docs[0];
+      const c = docRef.data();
       if (c.minAmount > 0 && finalTotalWithoutDiscount < c.minAmount) {
         setCouponError(`Minimum amount of GHS ${c.minAmount.toLocaleString()} required.`);
         return;
       }
+      if (c.maxUses > 0 && (c.usedCount || 0) >= c.maxUses) {
+        setCouponError('This coupon has reached its usage limit.');
+        return;
+      }
+      if (c.usedBy?.includes(user?.email?.toLowerCase())) {
+        setCouponError('You have already used this coupon.');
+        return;
+      }
+      setCouponDocId(docRef.id);
       setCouponDiscount(c.discount);
       setCouponApplied(true);
       setCouponError('');
@@ -803,7 +897,7 @@ const Checkout = () => {
               </div>
               <div className="flex justify-between font-hanken text-body-md text-on-surface-variant">
                 <span>Shipping</span>
-                <span>{shippingFee === 0 ? (formData.country ? 'Free' : 'Select Country') : `GHS ${shippingFee.toFixed(2)}`}</span>
+                <span>{finalShipping === 0 ? (formData.country ? 'Free' : 'Select Country') : `GHS ${finalShipping.toFixed(2)}`}</span>
               </div>
               <div className="flex justify-between font-hanken text-body-md text-on-surface-variant">
                 <span>Estimated taxes (5%)</span>

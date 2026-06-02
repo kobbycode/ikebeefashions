@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { validateEmail as validateEmailDeep } from '../utils/validation';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../services/api';
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
@@ -128,8 +130,23 @@ const Login = () => {
     try {
       if (isRegister) {
         await register(email, password);
+        try {
+          const userDoc = doc(collection(db, 'users'), email.toLowerCase());
+          await setDoc(userDoc, {
+            email: email.toLowerCase(),
+            displayName: email.split('@')[0],
+            createdAt: serverTimestamp(),
+            lastLogin: serverTimestamp(),
+            totalOrders: 0,
+            totalSpent: 0,
+          });
+        } catch {/* empty */}
       } else {
         await login(email, password);
+        try {
+          const userDoc = doc(collection(db, 'users'), email.toLowerCase());
+          await setDoc(userDoc, { lastLogin: serverTimestamp() }, { merge: true });
+        } catch {/* empty */}
       }
       localStorage.removeItem('auth_attempts');
       navigate('/account');

@@ -153,11 +153,11 @@ const Collection = () => {
                       {product.tag && (
                         <span className="bg-primary/80 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">{product.tag}</span>
                       )}
-                      {(product.stock === 0 || product.stock === '0') && (
+                      {product.totalStock === 0 && (
                         <span className="bg-red-600 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">Sold Out</span>
                       )}
-                      {(product.stock > 0 && product.stock <= 5) && (
-                        <span className="bg-amber-600 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">Only {product.stock} left</span>
+                      {(product.totalStock > 0 && product.totalStock <= 5) && (
+                        <span className="bg-amber-600 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">Only {product.totalStock} left</span>
                       )}
                     </div>
 
@@ -181,9 +181,14 @@ const Collection = () => {
                           <span className="font-hanken text-label-sm text-primary">{formatGHS(product.price)}</span>
                         </div>
                         <h4 className="font-bodoni text-headline-sm text-primary">{product.title}</h4>
-                        <div className="mt-3 w-full py-2.5 border border-primary text-primary font-hanken text-[10px] tracking-widest text-center hover:bg-primary hover:text-white transition-all uppercase">
-                          <span className="md:hidden">Tap to View</span>
-                          <span className="hidden md:inline">View Details →</span>
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); import('../pages/Compare').then(m => m.addToCompare(product)); }} className="flex-1 py-2.5 border border-primary/50 text-primary/80 font-hanken text-[10px] tracking-widest text-center hover:bg-primary hover:text-white transition-all uppercase">
+                            Compare
+                          </button>
+                          <Link to={`/collection/${product.slug || product.id}`} className="flex-1 py-2.5 border border-primary text-primary font-hanken text-[10px] tracking-widest text-center hover:bg-primary hover:text-white transition-all uppercase">
+                            <span className="md:hidden">View</span>
+                            <span className="hidden md:inline">View →</span>
+                          </Link>
                         </div>
                       </div>
                     </div>

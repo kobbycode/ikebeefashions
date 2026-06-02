@@ -11,12 +11,15 @@ import Lookbook from './pages/Lookbook';
 import Heritage from './pages/Heritage';
 import NotFound from './pages/NotFound';
 import ProductDetail from './pages/ProductDetail';
+import Blog from './pages/Blog';
 import Admin from './pages/Admin';
 import Checkout from './pages/Checkout';
 import Account from './pages/Account';
 import Login from './pages/Login';
 import Wishlist from './pages/Wishlist';
+import Compare from './pages/Compare';
 import Splash from './components/Splash';
+import PushNotificationPrompt from './components/PushNotificationPrompt';
 import {
   Sustainability,
   Shipping,
@@ -48,10 +51,12 @@ const AnimatedRoutes = () => {
           <Route path="/shipping"             element={<Shipping />} />
           <Route path="/privacy"              element={<Privacy />} />
           <Route path="/terms"               element={<Terms />} />
-          <Route path="/admin"               element={<Admin />} />
+           <Route path="/admin"               element={<Admin />} />
+           <Route path="/blog"                element={<Blog />} />
           <Route path="/account"             element={<Account />} />
           <Route path="/login"               element={<Login />} />
-          <Route path="/wishlist"            element={<Wishlist />} />
+           <Route path="/wishlist"            element={<Wishlist />} />
+           <Route path="/compare"             element={<Compare />} />
           {/* Catch-all 404 */}
           <Route path="*"                    element={<NotFound />} />
         </Routes>
@@ -76,6 +81,7 @@ function App() {
                   <Splash key="splash" onComplete={() => setShowSplash(false)} />
                 ) : (
                   <Layout key="layout">
+                    <PushNotificationPrompt />
                     <AnimatedRoutes />
                   </Layout>
                 )}

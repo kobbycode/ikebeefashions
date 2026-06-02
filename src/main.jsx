@@ -4,6 +4,12 @@ import { HelmetProvider } from 'react-helmet-async'
 import './index.css'
 import App from './App.jsx'
 
+if ('serviceWorker' in navigator) {
+  try {
+    await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+  } catch {}
+}
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <HelmetProvider>

@@ -8,6 +8,7 @@ import { useCart } from '../context/CartContext';
 import LazyImage from '../components/LazyImage';
 import { useAlert } from '../context/AlertContext';
 import { useWishlist } from '../context/WishlistContext';
+import { addToCompare } from './Compare';
 
 const ProductDetail = () => {
   const { slug } = useParams();
@@ -219,11 +220,11 @@ const ProductDetail = () => {
                     {product.tag}
                   </span>
                 )}
-                {(product.stock === 0 || product.stock === '0') && (
+                {product.totalStock === 0 && (
                   <span className="font-hanken text-[10px] tracking-widest uppercase text-white bg-red-600 px-3 py-1">Sold Out</span>
                 )}
-                {(product.stock > 0 && product.stock <= 5) && (
-                  <span className="font-hanken text-[10px] tracking-widest uppercase text-white bg-amber-600 px-3 py-1">Only {product.stock} left</span>
+                {(product.totalStock > 0 && product.totalStock <= 5) && (
+                  <span className="font-hanken text-[10px] tracking-widest uppercase text-white bg-amber-600 px-3 py-1">Only {product.totalStock} left</span>
                 )}
               </div>
 
@@ -278,19 +279,27 @@ const ProductDetail = () => {
                   <button onClick={() => setShowSizeGuide(true)} className="font-hanken text-label-sm text-secondary underline underline-offset-2 cursor-pointer">Size Guide</button>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {product.sizes.map((size) => (
-                    <button
-                      key={size}
-                      onClick={() => setSelectedSize(size)}
-                      className={`px-5 py-2.5 font-hanken text-[10px] tracking-widest uppercase border transition-all duration-300 ${
-                        selectedSize === size
-                          ? 'bg-primary text-on-primary border-primary'
-                          : 'border-primary/20 text-primary hover:border-primary'
-                      }`}
-                    >
-                      {size}
-                    </button>
-                  ))}
+                  {product.sizes.map((size) => {
+                    const sizeName = typeof size === 'string' ? size : size.name;
+                    const sizeStock = typeof size === 'object' ? (Number(size.stock) || 0) : product.totalStock;
+                    const outOfStock = sizeStock === 0;
+                    return (
+                      <button
+                        key={sizeName}
+                        disabled={outOfStock}
+                        onClick={() => !outOfStock && setSelectedSize(sizeName)}
+                        className={`px-5 py-2.5 font-hanken text-[10px] tracking-widest uppercase border transition-all duration-300 ${
+                          outOfStock ? 'border-primary/10 text-primary/30 line-through cursor-not-allowed' :
+                          selectedSize === sizeName
+                            ? 'bg-primary text-on-primary border-primary'
+                            : 'border-primary/20 text-primary hover:border-primary'
+                        }`}
+                        title={outOfStock ? 'Out of stock' : `${sizeStock} in stock`}
+                      >
+                        {sizeName}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -307,6 +316,14 @@ const ProductDetail = () => {
                   title={isInWishlist(product.id) ? 'Remove from wishlist' : 'Add to wishlist'}
                 >
                   <span className="material-symbols-outlined">{isInWishlist(product.id) ? 'favorite' : 'favorite_border'}</span>
+                </motion.button>
+                <motion.button
+                  onClick={() => addToCompare(product)}
+                  whileHover={{ scale: 1.05 }}
+                  className="w-14 h-14 flex items-center justify-center border border-primary/20 text-primary hover:border-primary transition-colors"
+                  title="Compare"
+                >
+                  <span className="material-symbols-outlined text-lg">compare_arrows</span>
                 </motion.button>
                 <motion.button
                   onClick={handleAddToCart}

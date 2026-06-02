@@ -1,7 +1,8 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 // Firebase configuration using environment variables
 const firebaseConfig = {
@@ -126,4 +127,37 @@ export const subscribeNewsletter = async (email) => {
     console.error('Error subscribing to newsletter:', error);
     throw error;
   }
+};
+
+// Initialize Firebase Cloud Messaging
+export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
+
+export const requestNotificationPermission = async (userId) => {
+  if (!messaging || !('Notification' in window)) return null;
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return null;
+    const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+    if (!vapidKey) return null;
+    const token = await getToken(messaging, {
+      vapidKey,
+    });
+    if (token && userId) {
+      await setDoc(doc(db, 'fcm_tokens', userId), {
+        token,
+        userId,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    }
+    return token;
+  } catch {
+    return null;
+  }
+};
+
+export const onForegroundMessage = (callback) => {
+  if (!messaging) return () => {};
+  return onMessage(messaging, (payload) => {
+    callback(payload);
+  });
 };

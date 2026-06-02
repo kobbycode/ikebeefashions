@@ -52,11 +52,16 @@ export const useProducts = () => {
               season: data.season || '',
               artisan: data.artisan || '',
               sizes: data.sizes && data.sizes.length
-                ? data.sizes
-                : ['XS', 'S', 'M', 'L', 'XL', 'Custom'],
+                ? data.sizes.map(s => typeof s === 'string' ? { name: s, stock: (data.stockPerSize && data.stockPerSize[s]) || 0 } : { ...s, stock: s.stock ?? (data.stockPerSize && data.stockPerSize[s.name]) ?? 0 })
+                : ['XS', 'S', 'M', 'L', 'XL', 'Custom'].map(s => ({ name: s, stock: (data.stockPerSize && data.stockPerSize[s]) || 0 })),
               span: data.span || 'md:col-span-4 md:row-span-1',
               isNew: data.isNew || false,
               tag: data.tag || '',
+              totalStock: data.stockPerSize
+                ? Object.values(data.stockPerSize).reduce((sum, v) => sum + (Number(v) || 0), 0)
+                : data.sizes && Array.isArray(data.sizes)
+                  ? data.sizes.reduce((sum, s) => sum + (typeof s === 'object' ? (Number(s.stock) || 0) : 0), 0)
+                  : Number(data.stock) || 0,
             };
           });
           setProducts(liveProducts);
