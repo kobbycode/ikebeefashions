@@ -15,7 +15,7 @@ const formatDate = (timestamp) => {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date);
 };
 
-const Timeline = ({ statusHistory = [], status }) => {
+const Timeline = ({ statusHistory = [] }) => {
   const history = Array.isArray(statusHistory) ? statusHistory : [];
   return (
     <div className="flex items-center gap-0 mt-3">
@@ -59,6 +59,7 @@ const Account = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const orderParam = params.get('order');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (orderParam) setHighlightedOrderId(orderParam);
   }, [location.search]);
 

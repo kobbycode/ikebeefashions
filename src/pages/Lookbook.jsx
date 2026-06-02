@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import LazyImage from '../components/LazyImage';
 import ParallaxImage from '../components/ParallaxImage';
 import { collection, getDocs, orderBy, query } from 'firebase/firestore';
 import { db } from '../services/api';

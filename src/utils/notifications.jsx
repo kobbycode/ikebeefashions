@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -66,7 +67,7 @@ export const useNotifications = (recipientId, recipientType) => {
   }, [recipientId, recipientType]);
 
   const markRead = async (id) => {
-    try { await updateDoc(doc(db, 'notifications', id), { read: true }); } catch {}
+    try { await updateDoc(doc(db, 'notifications', id), { read: true }); } catch { /* empty */ }
   };
 
   const markAllRead = async () => {

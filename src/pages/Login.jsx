@@ -65,6 +65,7 @@ const Login = () => {
     if (data.count >= RATE_LIMIT_MAX) {
       const remaining = Math.max(0, data.resetAt - Date.now());
       if (remaining > 0) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setRateLimited(true);
         setCooldown(remaining);
       } else {

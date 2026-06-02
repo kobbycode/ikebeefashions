@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, formatGHS } from '../hooks/useProducts';
-import { sendInquiryRequest } from '../services/api';
 import { db } from '../services/api';
 import { collection, addDoc, query, where, getDocs, orderBy as fbOrderBy, serverTimestamp } from 'firebase/firestore';
 import { useCart } from '../context/CartContext';
@@ -12,7 +11,6 @@ import { useWishlist } from '../context/WishlistContext';
 
 const ProductDetail = () => {
   const { slug } = useParams();
-  const navigate = useNavigate();
   const { products, getProductBySlug, loading } = useProducts();
   const product = getProductBySlug(slug);
 
@@ -48,7 +46,7 @@ const ProductDetail = () => {
       });
       setReviewSubmitted(true);
       setReviewForm({ name: '', rating: 5, comment: '' });
-    } catch {} finally { setReviewLoading(false); }
+    } catch { /* empty */ } finally { setReviewLoading(false); }
   };
   const [showSizeGuide, setShowSizeGuide] = useState(false);
 

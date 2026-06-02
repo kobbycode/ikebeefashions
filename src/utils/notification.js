@@ -11,7 +11,7 @@ export const playChime = () => {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.8);
-  } catch (e) {
+  } catch {
     // Audio not available
   }
 };

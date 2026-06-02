@@ -86,7 +86,7 @@ export const validatePhone = (phone, countryCode) => {
     try {
       const parsed = parsePhoneNumber(trimmed);
       if (parsed && parsed.isValid()) return null;
-    } catch {}
+    } catch { /* ignore */ }
     return 'Enter a valid phone number including country code.';
   }
 };

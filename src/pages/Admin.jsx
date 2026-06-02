@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { collection, getDocs, onSnapshot, orderBy, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -76,7 +76,7 @@ const Admin = () => {
     try {
       const saved = JSON.parse(localStorage.getItem('admin_dismissed_notifications') || '[]');
       dismissedIds.current = new Set(saved);
-    } catch {}
+    } catch { /* empty */ }
   }, []);
 
   const { showAlert: customAlert, showConfirm: customConfirm } = useAlert();
@@ -87,6 +87,7 @@ const Admin = () => {
       setUser(currentUser);
       setAuthLoading(false);
       if (currentUser) {
+        // eslint-disable-next-line react-hooks/immutability
         fetchData();
       }
     });
@@ -133,7 +134,7 @@ const Admin = () => {
     setLoginError('');
     try {
       await loginAdmin(loginForm.email, loginForm.password);
-    } catch (err) {
+    } catch {
       setLoginError('Invalid credentials. Access denied.');
     }
   };
@@ -277,7 +278,7 @@ const Admin = () => {
         const snap = await getDocs(q);
         if (snap.empty) {
           // Remove the hardcoded 'id' so Firestore creates its own ID
-          const { id, ...prodWithoutId } = prod;
+          const { ...prodWithoutId } = prod;
           await addDoc(collection(db, 'products'), {
             ...prodWithoutId,
             name: prod.title, // Add fallback mappings just in case
@@ -470,7 +471,7 @@ const Admin = () => {
         });
       }
       await customAlert('Order cancelled.', 'success');
-    } catch (err) {
+    } catch {
       await customAlert('Failed to cancel order.', 'danger');
     }
   };
@@ -498,7 +499,7 @@ const Admin = () => {
       await customAlert(`Coupon "${couponCode.toUpperCase()}" created.`, 'success');
       setCouponCode(''); setCouponDiscount(''); setCouponMinAmount(''); setShowCouponForm(false);
       fetchData();
-    } catch (err) {
+    } catch {
       await customAlert('Failed to create coupon.', 'danger');
     }
   };
@@ -575,7 +576,7 @@ const Admin = () => {
     <div className="min-h-screen bg-[#111111] text-white pt-16 px-6 md:px-12 font-sans relative">
       {/* Persistent Order Notification Toasts */}
       <div className="fixed top-20 right-6 z-[9999] flex flex-col gap-3 max-w-sm">
-        {pendingNotifications.map((n, idx) => (
+        {pendingNotifications.map((n) => (
           <motion.div
             key={n.id}
             initial={{ opacity: 0, x: 60 }}

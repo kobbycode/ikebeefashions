@@ -50,7 +50,7 @@ const Checkout = () => {
           phone: phone || '',
         };
       }
-    } catch {}
+    } catch { /* empty */ }
     return {
       email: '',
       firstName: '',
@@ -359,7 +359,7 @@ const Checkout = () => {
     }
   };
 
-  const handleCashClick = (e) => {
+  const handleCashClick = () => {
     if (!validateForm()) return;
     handleCashPayment();
   };
