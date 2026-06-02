@@ -130,7 +130,10 @@ export const subscribeNewsletter = async (email) => {
 };
 
 // Initialize Firebase Cloud Messaging
-export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
+export const messaging = (() => {
+  if (typeof window === 'undefined') return null;
+  try { return getMessaging(app); } catch { return null; }
+})();
 
 export const requestNotificationPermission = async (userId) => {
   if (!messaging || !('Notification' in window)) return null;
