@@ -26,7 +26,7 @@ const Admin = () => {
   // New Product Form State
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
+  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '', metaTitle: '', metaDescription: '' });
   const defaultSizeStock = { XS: 0, S: 0, M: 0, L: 0, XL: 0, Custom: 0 };
   const [sizeStock, setSizeStock] = useState({ ...defaultSizeStock });
   const [newProductImage, setNewProductImage] = useState(null);
@@ -234,6 +234,8 @@ const Admin = () => {
         stockPerSize: sizeStock,
         colors: newProduct.colors ? newProduct.colors.split(',').map(c => ({ name: c.trim() })).filter(c => c.name) : [],
         slug: newProduct.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        metaTitle: newProduct.metaTitle?.trim() || newProduct.name,
+        metaDescription: newProduct.metaDescription?.trim() || newProduct.details?.slice(0, 160) || `${newProduct.name} — IKEBEE Luxury Fashion`,
       };
 
       if (editingProduct) {
@@ -282,7 +284,9 @@ const Admin = () => {
       isNew: prod.isNew || false,
       details: detailsStr,
       stock: prod.stock != null ? String(prod.stock) : '',
-      colors: prod.colors?.map(c => c.name).join(', ') || ''
+      colors: prod.colors?.map(c => c.name).join(', ') || '',
+      metaTitle: prod.metaTitle || '',
+      metaDescription: prod.metaDescription || '',
     });
     setSizeStock(prod.stockPerSize ? { ...defaultSizeStock, ...prod.stockPerSize } : { ...defaultSizeStock });
     setNewProductImage(null);
@@ -825,7 +829,7 @@ const Admin = () => {
                   onClick={() => {
                     setShowProductForm(!showProductForm);
                     setEditingProduct(null);
-                    setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
+      setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '', metaTitle: '', metaDescription: '' });
                     setSizeStock({ ...defaultSizeStock });
                     setNewProductImage(null);
                     setNewProductGallery([]);
@@ -930,6 +934,19 @@ const Admin = () => {
                   <div className="mt-6">
                       <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Product Description / Details</label>
                       <textarea required rows="3" value={newProduct.details} onChange={e => setNewProduct({...newProduct, details: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880] resize-none"></textarea>
+                  </div>
+                  <div className="border-t border-white/10 pt-6 mt-6">
+                    <p className="text-[10px] text-[#C5A880] uppercase tracking-widest mb-4">SEO Settings</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Meta Title</label>
+                        <input type="text" value={newProduct.metaTitle} onChange={e => setNewProduct({...newProduct, metaTitle: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" placeholder="Defaults to product name" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Meta Description</label>
+                        <input type="text" value={newProduct.metaDescription} onChange={e => setNewProduct({...newProduct, metaDescription: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" placeholder="Defaults to first 160 chars of description" />
+                      </div>
+                    </div>
                   </div>
                   <button type="submit" disabled={isUploading} className="mt-6 bg-white text-black px-8 py-3 text-xs uppercase tracking-widest font-semibold hover:bg-[#C5A880] hover:text-white transition-colors disabled:opacity-50">
                     {isUploading ? 'Saving...' : editingProduct ? 'Update Product' : 'Publish Product'}

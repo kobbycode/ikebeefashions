@@ -9,6 +9,7 @@ import LazyImage from '../components/LazyImage';
 import { useAlert } from '../context/AlertContext';
 import { useWishlist } from '../context/WishlistContext';
 import { addToCompare } from './Compare';
+import { Helmet } from 'react-helmet-async';
 
 const ProductDetail = () => {
   const { slug } = useParams();
@@ -96,7 +97,16 @@ const ProductDetail = () => {
   };
 
   return (
-    <div className="bg-background pt-24 pb-section-gap overflow-hidden">
+    <>
+      <Helmet>
+        <title>{product.metaTitle || product.title} | IKEBEE</title>
+        <meta name="description" content={product.metaDescription || (product.details?.slice(0, 160) || `${product.title} — IKEBEE Luxury Fashion`)} />
+        <meta property="og:title" content={product.metaTitle || product.title} />
+        <meta property="og:description" content={product.metaDescription || (product.details?.slice(0, 160) || `${product.title} — IKEBEE Luxury Fashion`)} />
+        <meta property="og:image" content={product.image} />
+        <meta property="og:type" content="product" />
+      </Helmet>
+      <div className="bg-background pt-24 pb-section-gap overflow-hidden">
       {/* Breadcrumb */}
       <div className="px-margin-edge max-w-container-max mx-auto mb-12 flex items-center gap-3">
         <Link to="/collection" className="font-hanken text-label-sm text-on-surface-variant hover:text-primary transition-colors">
@@ -507,6 +517,7 @@ const ProductDetail = () => {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 };
 
