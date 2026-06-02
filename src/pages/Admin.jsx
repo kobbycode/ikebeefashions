@@ -5,9 +5,9 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth, storage, loginAdmin, logoutAdmin } from '../services/api';
 import { products as localProducts } from '../data/products';
+import { formatGHS } from '../hooks/useProducts';
 import { useAlert } from '../context/AlertContext';
 import { createNotification, NotificationBell } from '../utils/notifications';
-import emailjs from '@emailjs/browser';
 
 const IMG_FALLBACK = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500" viewBox="0 0 400 500"><rect fill="#1a1a1a" width="400" height="500"/><text x="200" y="250" text-anchor="middle" fill="#555" font-family="sans-serif" font-size="14" dy=".3em">Unavailable</text></svg>'
@@ -26,7 +26,7 @@ const Admin = () => {
   // New Product Form State
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '' });
+  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
   const [newProductImage, setNewProductImage] = useState(null);
   const [newProductGallery, setNewProductGallery] = useState([]);
   const [existingGalleryUrls, setExistingGalleryUrls] = useState([]);
@@ -208,6 +208,7 @@ const Admin = () => {
         isNew: Boolean(newProduct.isNew),
         details: newProduct.details,
         stock: newProduct.stock ? parseInt(newProduct.stock, 10) : 0,
+        colors: newProduct.colors ? newProduct.colors.split(',').map(c => ({ name: c.trim() })).filter(c => c.name) : [],
         slug: newProduct.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       };
 
@@ -255,7 +256,8 @@ const Admin = () => {
       tag: prod.tag || '',
       isNew: prod.isNew || false,
       details: detailsStr,
-      stock: prod.stock != null ? String(prod.stock) : ''
+      stock: prod.stock != null ? String(prod.stock) : '',
+      colors: prod.colors?.map(c => c.name).join(', ') || ''
     });
     setNewProductImage(null);
     setNewProductGallery([]);
@@ -410,33 +412,47 @@ const Admin = () => {
         orderId: orderId,
       });
 
-      if (orderItem?.customerInfo?.email) {
-        try {
-          await emailjs.send('service_csylkvj', 'template_hgjfxad', {
-            to_name: orderItem.customerInfo.firstName || 'Customer',
-            to_email: orderItem.customerInfo.email,
-            email: orderItem.customerInfo.email,
-            reply_to: orderItem.customerInfo.email,
-            order_id: shortRef,
-            order_details: `Your order status has been updated to "${newStatus}".`,
-            total_cost: '',
-            shipping_cost: '',
-            tax_cost: '',
-            user_email: orderItem.customerInfo.email,
-            recipient: orderItem.customerInfo.email,
-            recipient_email: orderItem.customerInfo.email,
-            logo: window.location.origin + '/logo.jpeg',
-          }, 'VBWEkwRY-kFE8tLyS');
-        } catch (emailErr) {
-          console.error('Failed to send status email:', emailErr);
-        }
-      }
-
       await customAlert(`Order status updated to "${newStatus}".`, "success");
     } catch (error) {
       console.error("Error updating order status:", error);
       await customAlert("Failed to update order status.", "danger");
     }
+  };
+
+  const [trackingInput, setTrackingInput] = useState('');
+  const [editingTracking, setEditingTracking] = useState(null);
+  const [bulkPrice, setBulkPrice] = useState('');
+  const handleBulkPriceEdit = async () => {
+    if (!bulkPrice || isNaN(bulkPrice)) return await customAlert('Enter a valid price.', 'warning');
+    const ok = await customConfirm('Update price for all products?', 'warning');
+    if (!ok) return;
+    try {
+      const snap = await getDocs(query(collection(db, 'products')));
+      for (const d of snap.docs) { await updateDoc(doc(db, 'products', d.id), { price: parseFloat(bulkPrice) }); }
+      await customAlert('Bulk price updated.', 'success');
+      setBulkPrice('');
+    } catch { await customAlert('Bulk update failed.', 'danger'); }
+  };
+
+  const handleSaveTracking = async (orderId) => {
+    if (!trackingInput.trim()) return;
+    await updateDoc(doc(db, 'orders', orderId), { trackingNumber: trackingInput.trim(), updatedAt: serverTimestamp() });
+    await customAlert('Tracking number saved.', 'success');
+    setEditingTracking(null);
+    setTrackingInput('');
+    fetchData();
+  };
+
+  const exportCSV = () => {
+    const rows = [['Order ID', 'Customer', 'Email', 'Total', 'Status', 'Date', 'Tracking']];
+    data.orders.forEach(o => {
+      rows.push([o.id, o.customerInfo?.firstName + ' ' + (o.customerInfo?.lastName||''), o.customerInfo?.email, o.totalAmount||o.total, o.status, o.createdAt?.toDate?.()?.toISOString()||'', o.trackingNumber||'']);
+    });
+    const csv = rows.map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `ikebee_orders_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleCancelOrder = async (orderId) => {
@@ -640,7 +656,7 @@ const Admin = () => {
 
         {/* Tabs */}
         <div className="flex space-x-8 border-b border-white/10 mb-8 overflow-x-auto">
-          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'coupons'].map((tab) => (
+          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'coupons', 'cart_recovery', 'reports'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -648,7 +664,7 @@ const Admin = () => {
                 activeTab === tab ? 'text-[#C5A880] border-b-2 border-[#C5A880]' : 'text-white/50 hover:text-white'
               }`}
             >
-              {tab.replace('_', ' ')} ({data[tab].length})
+              {tab.replace('_', ' ')}{data[tab] ? ` (${data[tab].length})` : ''}
             </button>
           ))}
         </div>
@@ -658,7 +674,7 @@ const Admin = () => {
           <div className="mb-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="font-serif text-2xl uppercase tracking-widest">Inventory Management</h2>
-              <div className="flex gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
                 <button 
                   onClick={handleMigrateCatalog}
                   disabled={isUploading}
@@ -670,7 +686,7 @@ const Admin = () => {
                   onClick={() => {
                     setShowProductForm(!showProductForm);
                     setEditingProduct(null);
-                    setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '' });
+                    setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '', colors: '' });
                     setNewProductImage(null);
                     setNewProductGallery([]);
                     setExistingGalleryUrls([]);
@@ -679,6 +695,11 @@ const Admin = () => {
                 >
                   {showProductForm ? 'Cancel' : '+ Add New Product'}
                 </button>
+                <div className="flex items-center gap-2 ml-auto">
+                  <span className="text-[10px] text-white/40 uppercase tracking-widest">Bulk Price:</span>
+                  <input type="number" placeholder="GHS" value={bulkPrice} onChange={e => setBulkPrice(e.target.value)} className="w-24 bg-transparent border-b border-white/20 pb-1 text-white text-xs focus:outline-none focus:border-[#C5A880]" />
+                  <button onClick={handleBulkPriceEdit} className="px-4 py-3 border border-[#C5A880]/50 text-[#C5A880] text-[10px] uppercase tracking-widest hover:bg-[#C5A880] hover:text-white transition-colors">Apply</button>
+                </div>
               </div>
             </div>
 
@@ -753,6 +774,10 @@ const Admin = () => {
                     <div>
                       <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Stock Quantity</label>
                       <input type="number" min="0" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Colors (comma-separated)</label>
+                      <input type="text" value={newProduct.colors} onChange={e => setNewProduct({...newProduct, colors: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" placeholder="e.g. Black, Gold, Ivory" />
                     </div>
                   </div>
                   <div className="mt-6">
@@ -938,8 +963,56 @@ const Admin = () => {
           </div>
         )}
 
+        {/* Cart Recovery */}
+        {activeTab === 'cart_recovery' && (
+          <div className="mb-8">
+            <h2 className="font-serif text-2xl uppercase tracking-widest mb-6">Abandoned Cart Recovery</h2>
+            <div className="bg-[#1A1A1A] border border-white/10 p-6 min-h-[200px]">
+              <p className="text-white/40 text-xs uppercase tracking-widest mb-4">Saved customer details found in localStorage:</p>
+              {(() => {
+                const savedDetails = localStorage.getItem('checkout_details');
+                if (!savedDetails) return <p className="text-white/30 text-sm">No saved customer details found.</p>;
+                const details = JSON.parse(savedDetails);
+                return (
+                  <div className="space-y-2">
+                    <div className="text-sm"><span className="text-white/50">Name:</span> {details.firstName}</div>
+                    <div className="text-sm"><span className="text-white/50">Email:</span> {details.email}</div>
+                    <div className="text-sm"><span className="text-white/50">Phone:</span> {details.phone}</div>
+                    <div className="text-sm"><span className="text-white/50">Last Checkout:</span> {details.savedAt ? new Date(details.savedAt).toLocaleString() : 'Unknown'}</div>
+                    <p className="mt-4 text-xs text-white/50">In-app notification sent (email service removed).</p>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Reports */}
+        {activeTab === 'reports' && (
+          <div className="mb-8">
+            <h2 className="font-serif text-2xl uppercase tracking-widest mb-6">Sales Reports</h2>
+            <div className="bg-[#1A1A1A] border border-white/10 p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="border border-white/10 p-6 text-center">
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest mb-2">Total Orders</p>
+                  <p className="font-serif text-3xl text-white">{data.orders.length}</p>
+                </div>
+                <div className="border border-white/10 p-6 text-center">
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest mb-2">Total Revenue</p>
+                  <p className="font-serif text-3xl text-[#C5A880]">{formatGHS(data.orders.reduce((sum, o) => sum + (parseFloat(o.totalAmount||o.total) || 0), 0))}</p>
+                </div>
+                <div className="border border-white/10 p-6 text-center">
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest mb-2">Delivered Orders</p>
+                  <p className="font-serif text-3xl text-green-400">{data.orders.filter(o => o.status === 'delivered').length}</p>
+                </div>
+              </div>
+              <button onClick={exportCSV} className="px-6 py-3 border border-[#C5A880] text-[#C5A880] text-xs uppercase tracking-widest hover:bg-[#C5A880] hover:text-white transition-colors">Export CSV</button>
+            </div>
+          </div>
+        )}
+
         {/* Content Area for Requests */}
-        {activeTab !== 'products' && activeTab !== 'lookbook' && activeTab !== 'coupons' && (
+        {activeTab !== 'products' && activeTab !== 'lookbook' && activeTab !== 'coupons' && activeTab !== 'cart_recovery' && activeTab !== 'reports' && (
           <div className="bg-[#1A1A1A] border border-white/10 p-6 md:p-8 min-h-[500px]">
             {loading ? (
               <div className="h-full flex items-center justify-center text-white/50 animate-pulse tracking-widest uppercase text-sm">
@@ -962,6 +1035,11 @@ const Admin = () => {
                     >
                       Delete Selected
                     </button>
+                  </div>
+                )}
+                {activeTab === 'orders' && (
+                  <div className="flex items-center gap-2 mb-4 pb-4 border-b border-white/10">
+                    <button onClick={exportCSV} className="px-4 py-2 border border-white/20 text-white/60 text-[10px] uppercase tracking-widest hover:text-white hover:border-white transition-colors">Export CSV</button>
                   </div>
                 )}
                 <div className="overflow-x-auto">
@@ -1195,6 +1273,21 @@ const Admin = () => {
                         <p className="text-sm text-white/80">{selectedRequest.customerInfo?.address}</p>
                         {selectedRequest.customerInfo?.apartment && <p className="text-sm text-white/80">{selectedRequest.customerInfo?.apartment}</p>}
                         <p className="text-sm text-white/80">{selectedRequest.customerInfo?.city}, {selectedRequest.customerInfo?.country} {selectedRequest.customerInfo?.postalCode}</p>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-white/40 uppercase tracking-widest mb-1">Tracking Number</span>
+                        {editingTracking === selectedRequest.id ? (
+                          <div className="flex gap-2">
+                            <input type="text" value={trackingInput} onChange={e => setTrackingInput(e.target.value)} className="w-full bg-transparent border-b border-white/20 pb-1 text-white text-sm focus:outline-none focus:border-[#C5A880]" placeholder="e.g. UPSE123456789" />
+                            <button onClick={() => handleSaveTracking(selectedRequest.id)} className="text-xs text-green-400 uppercase tracking-widest">Save</button>
+                            <button onClick={() => setEditingTracking(null)} className="text-xs text-white/50 uppercase tracking-widest">Cancel</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-white/80">{selectedRequest.trackingNumber || '—'}</span>
+                            <button onClick={() => { setTrackingInput(selectedRequest.trackingNumber || ''); setEditingTracking(selectedRequest.id); }} className="text-[10px] text-[#C5A880] uppercase tracking-widest">Edit</button>
+                          </div>
+                        )}
                       </div>
                     </>
                   ) : (

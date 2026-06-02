@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, formatGHS } from '../hooks/useProducts';
 import { sendInquiryRequest } from '../services/api';
+import { db } from '../services/api';
+import { collection, addDoc, query, where, getDocs, orderBy as fbOrderBy, serverTimestamp } from 'firebase/firestore';
 import { useCart } from '../context/CartContext';
 import LazyImage from '../components/LazyImage';
 import { useAlert } from '../context/AlertContext';
@@ -18,8 +20,36 @@ const ProductDetail = () => {
   const { addToCart, setIsCartOpen } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const [selectedSize, setSelectedSize] = useState('');
+  const [selectedColor, setSelectedColor] = useState('');
   const [activeImg, setActiveImg] = useState(0);
   const [showLightbox, setShowLightbox] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [reviewForm, setReviewForm] = useState({ name: '', rating: 5, comment: '' });
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (!product?.id) return;
+    const q = query(collection(db, 'reviews'), where('productId', '==', product.id), fbOrderBy('createdAt', 'desc'));
+    getDocs(q).then(snap => setReviews(snap.docs.map(d => d.data())));
+  }, [product?.id]);
+
+  const handleSubmitReview = async (e) => {
+    e.preventDefault();
+    if (!reviewForm.name || !reviewForm.comment) return;
+    setReviewLoading(true);
+    try {
+      await addDoc(collection(db, 'reviews'), {
+        productId: product.id,
+        name: reviewForm.name,
+        rating: reviewForm.rating,
+        comment: reviewForm.comment,
+        createdAt: serverTimestamp(),
+      });
+      setReviewSubmitted(true);
+      setReviewForm({ name: '', rating: 5, comment: '' });
+    } catch {} finally { setReviewLoading(false); }
+  };
   const [showSizeGuide, setShowSizeGuide] = useState(false);
 
   if (loading) {
@@ -191,6 +221,12 @@ const ProductDetail = () => {
                     {product.tag}
                   </span>
                 )}
+                {(product.stock === 0 || product.stock === '0') && (
+                  <span className="font-hanken text-[10px] tracking-widest uppercase text-white bg-red-600 px-3 py-1">Sold Out</span>
+                )}
+                {(product.stock > 0 && product.stock <= 5) && (
+                  <span className="font-hanken text-[10px] tracking-widest uppercase text-white bg-amber-600 px-3 py-1">Only {product.stock} left</span>
+                )}
               </div>
 
               <h1 className="font-bodoni text-headline-lg text-primary mb-3 leading-tight">{product.title}</h1>
@@ -212,6 +248,28 @@ const ProductDetail = () => {
                 <div className="flex items-center gap-3 mb-8 py-4 border-y border-primary/10">
                   <span className="material-symbols-outlined text-secondary text-sm">handshake</span>
                   <p className="font-hanken text-label-sm text-on-surface-variant italic">{product.artisan}</p>
+                </div>
+              )}
+
+              {/* Color Selection */}
+              {product.colors?.length > 0 && (
+                <div className="mb-8">
+                  <span className="font-hanken text-label-sm text-primary uppercase tracking-widest mb-4 block">Color: {selectedColor || 'Select'}</span>
+                  <div className="flex flex-wrap gap-3">
+                    {product.colors.map((color) => (
+                      <button
+                        key={color.name}
+                        onClick={() => setSelectedColor(color.name)}
+                        className={`px-5 py-2.5 font-hanken text-[10px] tracking-widest uppercase border transition-all duration-300 ${
+                          selectedColor === color.name
+                            ? 'bg-primary text-on-primary border-primary'
+                            : 'border-primary/20 text-primary hover:border-primary'
+                        }`}
+                      >
+                        {color.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -333,6 +391,42 @@ const ProductDetail = () => {
           </div>
         </section>
       )}
+
+      {/* Reviews Section */}
+      <section className="px-margin-edge max-w-container-max mx-auto mt-section-gap border-t border-primary/10 pt-16">
+        <h3 className="font-bodoni text-headline-md text-primary mb-8">Customer Reviews</h3>
+        {reviews.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+            {reviews.map((r, i) => (
+              <div key={i} className="border border-primary/10 p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-secondary text-sm">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                  <span className="font-hanken text-xs text-primary font-semibold">{r.name}</span>
+                </div>
+                <p className="font-hanken text-body-md text-on-surface-variant">{r.comment}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="font-hanken text-body-md text-on-surface-variant mb-12">No reviews yet. Be the first!</p>
+        )}
+        {reviewSubmitted ? (
+          <p className="font-hanken text-xs text-green-400 uppercase tracking-widest">Thank you for your review!</p>
+        ) : (
+          <form onSubmit={handleSubmitReview} className="max-w-lg">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <input type="text" required value={reviewForm.name} onChange={e => setReviewForm(p => ({ ...p, name: e.target.value }))} placeholder="Your name" className="w-full bg-transparent border border-primary/20 p-4 text-primary text-sm focus:outline-none focus:border-secondary font-hanken" />
+              <div className="flex items-center gap-1">
+                {[1,2,3,4,5].map(s => (
+                  <button key={s} type="button" onClick={() => setReviewForm(p => ({ ...p, rating: s }))} className={`text-lg cursor-pointer bg-transparent border-none p-0 ${s <= reviewForm.rating ? 'text-secondary' : 'text-primary/20'}`}>★</button>
+                ))}
+              </div>
+            </div>
+            <textarea required value={reviewForm.comment} onChange={e => setReviewForm(p => ({ ...p, comment: e.target.value }))} placeholder="Write your review..." rows="3" className="w-full bg-transparent border border-primary/20 p-4 text-primary text-sm focus:outline-none focus:border-secondary font-hanken resize-none mb-4" />
+            <button type="submit" disabled={reviewLoading} className="px-8 py-3 bg-primary text-white font-hanken text-xs uppercase tracking-widest hover:bg-secondary transition-colors disabled:opacity-50">{reviewLoading ? 'Submitting...' : 'Submit Review'}</button>
+          </form>
+        )}
+      </section>
 
       {/* Size Guide Modal */}
       <AnimatePresence>

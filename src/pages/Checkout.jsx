@@ -6,7 +6,6 @@ import { db, auth } from '../services/api';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { PaystackButton } from 'react-paystack';
-import emailjs from '@emailjs/browser';
 import { useAlert } from '../context/AlertContext';
 import { useAuth } from '../context/AuthContext';
 import { playChime } from '../utils/notification';
@@ -129,50 +128,6 @@ const Checkout = () => {
 
       const docRef = await addDoc(collection(db, 'orders'), order);
       
-      // Format items for EmailJS
-      const formattedItems = cart.map(item => {
-        let imageUrl = item.image || "";
-        if (imageUrl.startsWith('/')) {
-          imageUrl = window.location.origin + imageUrl;
-        }
-        return {
-          name: item.title || item.name,
-          units: item.quantity,
-          price: `GHS ${(item.price * item.quantity).toFixed(2)}`,
-          item: imageUrl
-        };
-      });
-      
-      // Send Confirmation Email
-      const orderHtml = cart.map(item => `<tr><td style="padding: 10px; border-bottom: 1px solid #eee;">${item.title || item.name} (x${item.quantity})</td><td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">GHS ${(item.price * item.quantity).toFixed(2)}</td></tr>`).join('');
-      const orderDetails = cart.map(item => `${item.title || item.name} (x${item.quantity}) - GHS ${(item.price * item.quantity).toFixed(2)}`).join('\n');
-
-      const emailParams = {
-        to_name: formData.firstName,
-        to_email: formData.email,
-        email: formData.email,
-        reply_to: formData.email,
-        order_id: docRef.id.slice(0, 8).toUpperCase(),
-        orders: formattedItems,
-        order_html: `<table style="width: 100%; border-collapse: collapse;">${orderHtml}</table>`,
-        order_details: orderDetails,
-        shipping_cost: `GHS ${shippingFee.toFixed(2)}`,
-        tax_cost: `GHS ${tax.toFixed(2)}`,
-        total_cost: `GHS ${finalTotal.toFixed(2)}`,
-        cost: {
-          shipping: `GHS ${shippingFee.toFixed(2)}`,
-          tax: `GHS ${tax.toFixed(2)}`,
-          total: `GHS ${finalTotal.toFixed(2)}`
-        },
-        logo: window.location.origin + "/logo.jpeg",
-        user_email: formData.email,
-        recipient: formData.email,
-        recipient_email: formData.email
-      };
-      
-      // We will leave the Service ID as a placeholder to be filled once obtained
-      await emailjs.send('service_csylkvj', 'template_hgjfxad', emailParams, 'VBWEkwRY-kFE8tLyS');
-      
       setOrderId(docRef.id);
       setSuccess(true);
       playChime();
@@ -203,7 +158,7 @@ const Checkout = () => {
       
     } catch (error) {
       console.error("Error creating order: ", error);
-      customAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
+      showAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
     } finally {
       setLoading(false);
     }
@@ -238,49 +193,6 @@ const Checkout = () => {
 
       const docRef = await addDoc(collection(db, 'orders'), order);
       
-      // Format items for EmailJS
-      const formattedItems = cart.map(item => {
-        let imageUrl = item.image || "";
-        if (imageUrl.startsWith('/')) {
-          imageUrl = window.location.origin + imageUrl;
-        }
-        return {
-          name: item.title || item.name,
-          units: item.quantity,
-          price: `GHS ${(item.price * item.quantity).toFixed(2)}`,
-          item: imageUrl
-        };
-      });
-      
-      // Send Confirmation Email
-      const orderHtml = cart.map(item => `<tr><td style="padding: 10px; border-bottom: 1px solid #eee;">${item.title || item.name} (x${item.quantity})</td><td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">GHS ${(item.price * item.quantity).toFixed(2)}</td></tr>`).join('');
-      const orderDetails = cart.map(item => `${item.title || item.name} (x${item.quantity}) - GHS ${(item.price * item.quantity).toFixed(2)}`).join('\n');
-
-      const emailParams = {
-        to_name: formData.firstName,
-        to_email: formData.email,
-        email: formData.email,
-        reply_to: formData.email,
-        order_id: docRef.id.slice(0, 8).toUpperCase(),
-        orders: formattedItems,
-        order_html: `<table style="width: 100%; border-collapse: collapse;">${orderHtml}</table>`,
-        order_details: orderDetails,
-        shipping_cost: `GHS ${shippingFee.toFixed(2)}`,
-        tax_cost: `GHS ${tax.toFixed(2)}`,
-        total_cost: `GHS ${finalTotal.toFixed(2)}`,
-        cost: {
-          shipping: `GHS ${shippingFee.toFixed(2)}`,
-          tax: `GHS ${tax.toFixed(2)}`,
-          total: `GHS ${finalTotal.toFixed(2)}`
-        },
-        logo: window.location.origin + "/logo.jpeg",
-        user_email: formData.email,
-        recipient: formData.email,
-        recipient_email: formData.email
-      };
-      
-      await emailjs.send('service_csylkvj', 'template_hgjfxad', emailParams, 'VBWEkwRY-kFE8tLyS');
-      
       setOrderId(docRef.id);
       setSuccess(true);
       playChime();
@@ -311,7 +223,7 @@ const Checkout = () => {
       
     } catch (error) {
       console.error("Error creating cash order: ", error);
-      customAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
+      showAlert(`Error: ${error.text || error.message || "There was an issue processing your order. Please contact support."}`, "danger");
     } finally {
       setLoading(false);
     }

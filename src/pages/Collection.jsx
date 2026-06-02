@@ -153,6 +153,12 @@ const Collection = () => {
                       {product.tag && (
                         <span className="bg-primary/80 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">{product.tag}</span>
                       )}
+                      {(product.stock === 0 || product.stock === '0') && (
+                        <span className="bg-red-600 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">Sold Out</span>
+                      )}
+                      {(product.stock > 0 && product.stock <= 5) && (
+                        <span className="bg-amber-600 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">Only {product.stock} left</span>
+                      )}
                     </div>
 
                     {/* Detail Image on hover — cycles through gallery */}
