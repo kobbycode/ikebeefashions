@@ -358,11 +358,10 @@ const Checkout = () => {
           );
           const data = await res.json();
           const addr = data.address || {};
-          const parts = (data.display_name || '').split(',').map(s => s.trim());
-          const street = [addr.house_number, addr.road || addr.pedestrian].filter(Boolean).join(' ');
+          const displayName = data.display_name || '';
           setFormData(prev => ({
             ...prev,
-            address: street || parts.slice(0, 2).join(', ') || prev.address,
+            address: displayName || prev.address,
             city: addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.county || prev.city,
             country: getCountryFromAddr(addr.country_code) || prev.country,
             postalCode: addr.postcode || prev.postalCode,
