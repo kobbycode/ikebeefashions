@@ -15,6 +15,7 @@ import Admin from './pages/Admin';
 import Checkout from './pages/Checkout';
 import Account from './pages/Account';
 import Login from './pages/Login';
+import Wishlist from './pages/Wishlist';
 import Splash from './components/Splash';
 import {
   Sustainability,
@@ -27,6 +28,7 @@ import PageTransition from './components/PageTransition';
 import { CartProvider } from './context/CartContext';
 import { AlertProvider } from './context/AlertContext';
 import { AuthProvider } from './context/AuthContext';
+import { WishlistProvider } from './context/WishlistContext';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -49,6 +51,7 @@ const AnimatedRoutes = () => {
           <Route path="/admin"               element={<Admin />} />
           <Route path="/account"             element={<Account />} />
           <Route path="/login"               element={<Login />} />
+          <Route path="/wishlist"            element={<Wishlist />} />
           {/* Catch-all 404 */}
           <Route path="*"                    element={<NotFound />} />
         </Routes>
@@ -65,6 +68,7 @@ function App() {
       <Router>
         <AuthProvider>
           <AlertProvider>
+            <WishlistProvider>
             <SmoothScroll>
               <ScrollToTop />
               <AnimatePresence mode="wait">
@@ -77,6 +81,7 @@ function App() {
                 )}
               </AnimatePresence>
             </SmoothScroll>
+          </WishlistProvider>
           </AlertProvider>
         </AuthProvider>
       </Router>

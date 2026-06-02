@@ -83,6 +83,9 @@ const Navbar = () => {
           {/* Right Controls */}
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
             {user && <NotificationBell recipientId={user.uid} recipientType="customer" onNotificationClick={handleNotificationClick} />}
+            <Link to="/wishlist" className="text-primary hover:text-secondary transition-colors duration-300" aria-label="Wishlist">
+              <span className="material-symbols-outlined">favorite</span>
+            </Link>
             <div className="relative" ref={accountRef}>
               <button
                 onClick={() => setAccountOpen(prev => !prev)}
@@ -238,6 +241,14 @@ const Navbar = () => {
                       <p className="font-hanken text-xs text-on-surface-variant truncate">{user.email}</p>
                       <NotificationBell recipientId={user.uid} recipientType="customer" onNotificationClick={handleNotificationClick} />
                     </div>
+                    <Link
+                      to="/wishlist"
+                      onClick={() => setMobileOpen(false)}
+                      className="font-bodoni text-headline-md text-primary hover:text-secondary transition-colors duration-300 flex items-center gap-3"
+                    >
+                      <span className="material-symbols-outlined">favorite</span>
+                      Wishlist
+                    </Link>
                     <Link
                       to="/account"
                       onClick={() => setMobileOpen(false)}

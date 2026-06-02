@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useCart } from '../context/CartContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { db, auth } from '../services/api';
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { PaystackButton } from 'react-paystack';
 import emailjs from '@emailjs/browser';
@@ -31,6 +31,10 @@ const Checkout = () => {
   const [fieldErrors, setFieldErrors] = useState({});
   const [locationLoading, setLocationLoading] = useState(false);
   const [saveDetails, setSaveDetails] = useState(true);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponError, setCouponError] = useState('');
+  const [couponApplied, setCouponApplied] = useState(false);
   const [formData, setFormData] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(SAVED_DETAILS_KEY) || 'null');
@@ -63,7 +67,9 @@ const Checkout = () => {
 
   const shippingFee = formData.country ? (formData.country === 'GH' ? 50 : 300) : 0;
   const tax = cartTotal * 0.05;
-  const finalTotal = cartTotal + shippingFee + tax;
+  const finalTotalWithoutDiscount = cartTotal + shippingFee + tax;
+  const discountAmount = couponApplied ? (finalTotalWithoutDiscount * couponDiscount) / 100 : 0;
+  const finalTotal = finalTotalWithoutDiscount - discountAmount;
   const isFormValid = formData.email && formData.firstName && formData.address && formData.city && formData.country && formData.postalCode && formData.phone && Object.keys(fieldErrors).length === 0;
 
   // Paystack Configuration
@@ -446,6 +452,24 @@ const Checkout = () => {
     handleCashPayment();
   };
 
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) { setCouponError('Enter a coupon code.'); return; }
+    setCouponError('');
+    try {
+      const q = query(collection(db, 'coupons'), where('code', '==', couponCode.trim().toUpperCase()));
+      const snap = await getDocs(q);
+      if (snap.empty) { setCouponError('Invalid coupon code.'); return; }
+      const c = snap.docs[0].data();
+      if (c.minAmount > 0 && finalTotalWithoutDiscount < c.minAmount) {
+        setCouponError(`Minimum amount of GHS ${c.minAmount.toLocaleString()} required.`);
+        return;
+      }
+      setCouponDiscount(c.discount);
+      setCouponApplied(true);
+      setCouponError('');
+    } catch { setCouponError('Failed to validate coupon.'); }
+  };
+
   if (success) {
     const statusFlow = ['pending', 'packing', 'delivering', 'delivered'];
     return (
@@ -740,6 +764,34 @@ const Checkout = () => {
               </div>
             </section>
 
+            {/* Coupon Section */}
+            <section className="mb-8">
+              <h3 className="text-label-lg text-primary uppercase tracking-widest mb-4 border-b border-primary/20 pb-2">Promo Code</h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={e => { setCouponCode(e.target.value); setCouponApplied(false); setCouponDiscount(0); setCouponError(''); }}
+                  placeholder="Enter coupon code"
+                  disabled={couponApplied}
+                  className={`flex-1 bg-transparent border p-4 outline-none focus:border-primary transition-colors font-hanken text-body-md ${couponError ? 'border-red-500' : 'border-primary/20'}`}
+                />
+                {couponApplied ? (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-green-900/30 border border-green-500/30">
+                    <span className="text-green-400 text-xs font-semibold">{couponDiscount}% OFF</span>
+                    <button onClick={() => { setCouponCode(''); setCouponDiscount(0); setCouponApplied(false); }} className="text-green-400 hover:text-green-300 cursor-pointer bg-transparent border-none p-0">
+                      <span className="material-symbols-outlined text-sm">close</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={handleApplyCoupon} className="px-6 py-4 bg-primary/10 text-primary font-hanken text-xs uppercase tracking-widest border border-primary/30 hover:bg-primary hover:text-white transition-colors whitespace-nowrap cursor-pointer bg-transparent">
+                    Apply
+                  </button>
+                )}
+              </div>
+              {couponError && <p className="text-red-400 text-[10px] mt-1 uppercase tracking-widest">{couponError}</p>}
+            </section>
+
             {/* Payment Method Selector */}
             <section className="mb-8">
               <h2 className="font-bodoni text-headline-sm text-primary mb-6 italic">Payment Method</h2>
@@ -845,6 +897,12 @@ const Checkout = () => {
                 <span>Estimated taxes (5%)</span>
                 <span>GHS {tax.toFixed(2)}</span>
               </div>
+              {couponApplied && (
+                <div className="flex justify-between font-hanken text-body-md text-green-400">
+                  <span>Discount ({couponDiscount}%)</span>
+                  <span>- GHS {discountAmount.toFixed(2)}</span>
+                </div>
+              )}
               
               <div className="border-t border-primary/20 mt-6 pt-6 flex justify-between items-center">
                 <span className="font-hanken text-label-lg uppercase tracking-widest text-primary">Total</span>

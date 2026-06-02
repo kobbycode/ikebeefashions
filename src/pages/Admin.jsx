@@ -26,11 +26,18 @@ const Admin = () => {
   // New Product Form State
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+  const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '' });
   const [newProductImage, setNewProductImage] = useState(null);
   const [newProductGallery, setNewProductGallery] = useState([]);
   const [existingGalleryUrls, setExistingGalleryUrls] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Coupon State
+  const [couponCode, setCouponCode] = useState('');
+  const [couponDiscount, setCouponDiscount] = useState('');
+  const [couponMinAmount, setCouponMinAmount] = useState('');
+  const [coupons, setCoupons] = useState([]);
+  const [showCouponForm, setShowCouponForm] = useState(false);
 
   // Lookbook Form State
   const [showLookbookForm, setShowLookbookForm] = useState(false);
@@ -154,6 +161,9 @@ const Admin = () => {
       const lookSnap = await getDocs(lookQ);
       const lookList = lookSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+      const couponSnap = await getDocs(collection(db, 'coupons'));
+      setCoupons(couponSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
       setData(prev => ({ ...prev, bespoke: bespokeList, inquiries: inqList, newsletter: newsList, products: prodList, lookbook: lookList }));
     } catch (error) {
       console.error("Error fetching data: ", error);
@@ -197,6 +207,7 @@ const Admin = () => {
         tag: newProduct.tag || '',
         isNew: Boolean(newProduct.isNew),
         details: newProduct.details,
+        stock: newProduct.stock ? parseInt(newProduct.stock, 10) : 0,
         slug: newProduct.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       };
 
@@ -243,7 +254,8 @@ const Admin = () => {
       category: prod.category || '',
       tag: prod.tag || '',
       isNew: prod.isNew || false,
-      details: detailsStr
+      details: detailsStr,
+      stock: prod.stock != null ? String(prod.stock) : ''
     });
     setNewProductImage(null);
     setNewProductGallery([]);
@@ -363,6 +375,11 @@ const Admin = () => {
 
   const statusFlow = ['pending', 'packing', 'delivering', 'delivered'];
 
+  const getStatusColor = (status) => {
+    const map = { pending: 'bg-yellow-900/40 text-yellow-400', packing: 'bg-blue-900/40 text-blue-400', delivering: 'bg-purple-900/40 text-purple-400', delivered: 'bg-green-900/40 text-green-400', cancelled: 'bg-red-900/40 text-red-400' };
+    return map[status] || 'bg-white/10 text-white/50';
+  };
+
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     try {
       const orderRef = doc(db, 'orders', orderId);
@@ -422,6 +439,26 @@ const Admin = () => {
     }
   };
 
+  const handleCancelOrder = async (orderId) => {
+    const ok = await customConfirm('Are you sure you want to cancel this order? This cannot be undone.', 'danger');
+    if (!ok) return;
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      const orderItem = data.orders.find(o => o.id === orderId);
+      await updateDoc(orderRef, { status: 'cancelled', updatedAt: serverTimestamp() });
+      if (orderItem?.userId) {
+        createNotification({
+          type: 'order_status',
+          message: `Order #${orderId.slice(0, 8).toUpperCase()} has been cancelled`,
+          recipientId: orderItem.userId, recipientType: 'customer', orderId,
+        });
+      }
+      await customAlert('Order cancelled.', 'success');
+    } catch (err) {
+      await customAlert('Failed to cancel order.', 'danger');
+    }
+  };
+
   const dismissNotification = (id) => {
     setPendingNotifications(prev => {
       const updated = prev.filter(p => p.id !== id);
@@ -430,6 +467,31 @@ const Admin = () => {
     });
     dismissedIds.current.add(id);
     localStorage.setItem('admin_dismissed_notifications', JSON.stringify([...dismissedIds.current]));
+  };
+
+  const handleAddCoupon = async (e) => {
+    e.preventDefault();
+    if (!couponCode || !couponDiscount) return customAlert('Code and discount are required.', 'warning');
+    try {
+      await addDoc(collection(db, 'coupons'), {
+        code: couponCode.toUpperCase(),
+        discount: parseFloat(couponDiscount),
+        minAmount: couponMinAmount ? parseFloat(couponMinAmount) : 0,
+        createdAt: serverTimestamp(),
+      });
+      await customAlert(`Coupon "${couponCode.toUpperCase()}" created.`, 'success');
+      setCouponCode(''); setCouponDiscount(''); setCouponMinAmount(''); setShowCouponForm(false);
+      fetchData();
+    } catch (err) {
+      await customAlert('Failed to create coupon.', 'danger');
+    }
+  };
+
+  const handleDeleteCoupon = async (id) => {
+    const ok = await customConfirm('Delete this coupon?', 'warning');
+    if (!ok) return;
+    await deleteDoc(doc(db, 'coupons', id));
+    fetchData();
   };
 
   const getNextStatus = (currentStatus) => {
@@ -548,6 +610,12 @@ const Admin = () => {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {[
             { label: 'Total Orders', count: data.orders.length, icon: 'receipt_long' },
+            { label: 'Revenue (GHS)', count: data.orders.reduce((sum, o) => {
+              const raw = o.totalAmount || o.total || 0;
+              return sum + (typeof raw === 'string' ? parseFloat(raw.replace(/[^0-9.-]+/g, '')) : Number(raw));
+            }, 0).toLocaleString(), icon: 'payments' },
+            { label: 'Pending', count: data.orders.filter(o => o.status === 'pending').length, icon: 'schedule' },
+            { label: 'Delivered', count: data.orders.filter(o => o.status === 'delivered').length, icon: 'check_circle' },
             { label: 'Total Inventory', count: data.products.length, icon: 'inventory_2' },
             { label: 'Bespoke Requests', count: data.bespoke.length, icon: 'design_services' },
             { label: 'Private Inquiries', count: data.inquiries.length, icon: 'mail' },
@@ -572,7 +640,7 @@ const Admin = () => {
 
         {/* Tabs */}
         <div className="flex space-x-8 border-b border-white/10 mb-8 overflow-x-auto">
-          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter'].map((tab) => (
+          {['orders', 'bespoke', 'inquiries', 'products', 'lookbook', 'newsletter', 'coupons'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -602,7 +670,7 @@ const Admin = () => {
                   onClick={() => {
                     setShowProductForm(!showProductForm);
                     setEditingProduct(null);
-                    setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+                    setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '', stock: '' });
                     setNewProductImage(null);
                     setNewProductGallery([]);
                     setExistingGalleryUrls([]);
@@ -682,6 +750,10 @@ const Admin = () => {
                         <span className="text-xs text-white/70 uppercase tracking-widest">Mark as "NEW"</span>
                       </label>
                     </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Stock Quantity</label>
+                      <input type="number" min="0" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                    </div>
                   </div>
                   <div className="mt-6">
                       <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Product Description / Details</label>
@@ -705,6 +777,9 @@ const Admin = () => {
                     <p className="text-[10px] text-[#C5A880] tracking-widest uppercase mb-1">{prod.category}</p>
                     <h3 className="text-sm font-semibold truncate">{prod.title || prod.name}</h3>
                     <p className="text-white/60 text-sm mt-1">GHS {typeof prod.price === 'string' && prod.price.startsWith('GHS') ? prod.price.replace('GHS ', '') : Number(prod.price).toLocaleString()}</p>
+                    <p className={`text-[9px] uppercase tracking-widest mt-2 ${(prod.stock || 0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {(prod.stock || 0) > 0 ? `${prod.stock} in stock` : 'Out of stock'}
+                    </p>
                   </div>
                   <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => handleEditClick(prod)} className="bg-white text-black w-8 h-8 rounded-full flex items-center justify-center shadow-lg hover:bg-[#C5A880] hover:text-white transition-colors">
@@ -813,8 +888,58 @@ const Admin = () => {
           </div>
         )}
 
+        {/* Coupons Management */}
+        {activeTab === 'coupons' && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="font-serif text-2xl uppercase tracking-widest">Coupon Codes</h2>
+              <button onClick={() => setShowCouponForm(!showCouponForm)} className="bg-[#C5A880] text-white px-6 py-3 text-xs uppercase tracking-widest hover:bg-[#a38a68] transition-colors">
+                {showCouponForm ? 'Cancel' : '+ New Coupon'}
+              </button>
+            </div>
+
+            {showCouponForm && (
+              <form onSubmit={handleAddCoupon} className="bg-[#1A1A1A] p-6 border border-white/10 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Code</label>
+                    <input type="text" required value={couponCode} onChange={e => setCouponCode(e.target.value.toUpperCase())} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" placeholder="e.g. SUMMER20" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Discount (%)</label>
+                    <input type="number" required min="1" max="100" value={couponDiscount} onChange={e => setCouponDiscount(e.target.value)} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" placeholder="e.g. 20" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Min. Amount (GHS) — optional</label>
+                    <input type="number" min="0" value={couponMinAmount} onChange={e => setCouponMinAmount(e.target.value)} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]" />
+                  </div>
+                </div>
+                <button type="submit" className="mt-6 bg-white text-black px-8 py-3 text-xs uppercase tracking-widest font-semibold hover:bg-[#C5A880] hover:text-white transition-colors">Create Coupon</button>
+              </form>
+            )}
+
+            <div className="bg-[#1A1A1A] border border-white/10 p-6">
+              {coupons.length === 0 ? (
+                <p className="text-white/40 text-center py-8 uppercase tracking-widest text-xs">No coupons yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {coupons.map(c => (
+                    <div key={c.id} className="flex justify-between items-center bg-black/30 p-4 border border-white/5">
+                      <div>
+                        <span className="text-[#C5A880] font-mono text-sm font-bold">{c.code}</span>
+                        <span className="text-white/60 text-xs ml-4">{c.discount}% off{c.minAmount > 0 ? ` (min. GHS ${c.minAmount.toLocaleString()})` : ''}</span>
+                      </div>
+                      <button onClick={() => handleDeleteCoupon(c.id)} className="text-red-400 hover:text-red-300 text-xs uppercase tracking-widest cursor-pointer bg-transparent border-none p-0">Delete</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Content Area for Requests */}
-        {activeTab !== 'products' && activeTab !== 'lookbook' && (
+        {activeTab !== 'products' && activeTab !== 'lookbook' && activeTab !== 'coupons' && (
           <div className="bg-[#1A1A1A] border border-white/10 p-6 md:p-8 min-h-[500px]">
             {loading ? (
               <div className="h-full flex items-center justify-center text-white/50 animate-pulse tracking-widest uppercase text-sm">
@@ -915,12 +1040,7 @@ const Admin = () => {
                             <td className="py-5 text-sm text-white">GHS {item.total}</td>
                             <td className="py-5 text-sm">
                               <div className="flex items-center gap-2">
-                                <span className={`px-2 py-1 text-[10px] uppercase tracking-widest whitespace-nowrap ${
-                                  item.status === 'delivered' ? 'bg-green-900/50 text-green-400' :
-                                  item.status === 'delivering' ? 'bg-blue-900/50 text-blue-400' :
-                                  item.status === 'packing' ? 'bg-purple-900/50 text-purple-400' :
-                                  'bg-yellow-900/50 text-yellow-400'
-                                }`}>
+                                <span className={`px-2 py-1 text-[10px] uppercase tracking-widest whitespace-nowrap ${getStatusColor(item.status)}`}>
                                   {item.status}
                                 </span>
                                 {getNextStatus(item.status) && (
@@ -929,6 +1049,14 @@ const Admin = () => {
                                     className="text-[#C5A880] hover:text-white text-[10px] uppercase tracking-widest border border-[#C5A880]/30 hover:border-white px-2 py-1 transition-colors whitespace-nowrap"
                                   >
                                     → {getNextStatus(item.status)}
+                                  </button>
+                                )}
+                                {item.status !== 'delivered' && item.status !== 'cancelled' && (
+                                  <button
+                                    onClick={() => handleCancelOrder(item.id)}
+                                    className="text-red-400 hover:text-white text-[10px] uppercase tracking-widest border border-red-400/30 hover:border-red-400 px-2 py-1 transition-colors whitespace-nowrap"
+                                  >
+                                    Cancel
                                   </button>
                                 )}
                               </div>

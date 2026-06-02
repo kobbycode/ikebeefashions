@@ -42,14 +42,22 @@ const CustomCursor = () => {
   );
 };
 
-const categories = ['All', 'Kente', 'Silk', 'Batik', 'Linen'];
-
 const Collection = () => {
   const { products, loading } = useProducts();
   const [filter, setFilter] = useState('All');
+  const [search, setSearch] = useState('');
 
-  const filteredProducts =
-    filter === 'All' ? products : products.filter((p) => p.category === filter);
+  const categories = ['All', ...new Set(products.map(p => p.category).filter(Boolean))];
+
+  const filteredProducts = products.filter((p) => {
+    if (filter !== 'All' && p.category !== filter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const match = p.title?.toLowerCase().includes(q) || p.tag?.toLowerCase().includes(q) || p.category?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="pt-32 pb-section-gap bg-background min-h-screen">
@@ -72,8 +80,25 @@ const Collection = () => {
           The Discovery Collection
         </motion.h1>
 
+        {/* Search */}
+        <div className="relative max-w-md mx-auto mb-8">
+          <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search products..."
+            className="w-full bg-transparent border border-primary/20 pl-12 pr-4 py-3 text-primary text-sm focus:outline-none focus:border-secondary transition-colors font-hanken"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer bg-transparent border-none p-0">
+              <span className="material-symbols-outlined text-sm">close</span>
+            </button>
+          )}
+        </div>
+
         {/* Filter Bar */}
-        <div className="flex flex-wrap justify-center gap-6 md:gap-8 mt-12 border-b border-primary/10 pb-8">
+        <div className="flex flex-wrap justify-center gap-6 md:gap-8 mt-6 border-b border-primary/10 pb-8">
           {categories.map((cat) => (
             <button
               key={cat}

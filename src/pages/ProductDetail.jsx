@@ -6,6 +6,7 @@ import { sendInquiryRequest } from '../services/api';
 import { useCart } from '../context/CartContext';
 import LazyImage from '../components/LazyImage';
 import { useAlert } from '../context/AlertContext';
+import { useWishlist } from '../context/WishlistContext';
 
 const ProductDetail = () => {
   const { slug } = useParams();
@@ -15,8 +16,10 @@ const ProductDetail = () => {
 
   const { showAlert } = useAlert();
   const { addToCart, setIsCartOpen } = useCart();
+  const { toggleWishlist, isInWishlist } = useWishlist();
   const [selectedSize, setSelectedSize] = useState('');
   const [activeImg, setActiveImg] = useState(0);
+  const [showLightbox, setShowLightbox] = useState(false);
   const [showSizeGuide, setShowSizeGuide] = useState(false);
 
   if (loading) {
@@ -98,11 +101,13 @@ const ProductDetail = () => {
                   <span className="bg-primary/80 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">{product.tag}</span>
                 )}
               </div>
-              <LazyImage
-                src={product.galleryImgs[activeImg]}
-                alt={product.title}
-                className="w-full h-full object-cover"
-              />
+              <button onClick={() => setShowLightbox(true)} className="w-full h-full cursor-zoom-in">
+                <LazyImage
+                  src={product.galleryImgs[activeImg]}
+                  alt={product.title}
+                  className="w-full h-full object-cover"
+                />
+              </button>
             </motion.div>
 
             {/* Thumbnail Strip */}
@@ -119,6 +124,44 @@ const ProductDetail = () => {
                 </button>
               ))}
             </div>
+
+            {/* Lightbox */}
+            <AnimatePresence>
+              {showLightbox && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4"
+                  onClick={() => setShowLightbox(false)}
+                >
+                  <button onClick={() => setShowLightbox(false)} className="absolute top-6 right-6 text-white/60 hover:text-white z-10 transition-colors">
+                    <span className="material-symbols-outlined text-3xl">close</span>
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setActiveImg((prev) => (prev > 0 ? prev - 1 : product.galleryImgs.length - 1)); }} className="absolute left-6 top-1/2 -translate-y-1/2 text-white/60 hover:text-white z-10 transition-colors">
+                    <span className="material-symbols-outlined text-3xl">chevron_left</span>
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setActiveImg((prev) => (prev < product.galleryImgs.length - 1 ? prev + 1 : 0)); }} className="absolute right-6 top-1/2 -translate-y-1/2 text-white/60 hover:text-white z-10 transition-colors">
+                    <span className="material-symbols-outlined text-3xl">chevron_right</span>
+                  </button>
+                  <motion.img
+                    key={activeImg}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3 }}
+                    src={product.galleryImgs[activeImg]}
+                    alt={product.title}
+                    className="max-w-full max-h-[90vh] object-contain"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2">
+                    {product.galleryImgs.map((_, i) => (
+                      <button key={i} onClick={() => setActiveImg(i)} className={`w-2 h-2 rounded-full transition-all ${i === activeImg ? 'bg-white w-6' : 'bg-white/40'}`} />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Product Info Column */}
@@ -195,14 +238,28 @@ const ProductDetail = () => {
                 </div>
               </div>
 
-              {/* CTA */}
-              <motion.button
-                onClick={handleAddToCart}
-                whileHover={{ backgroundColor: '#C5A059' }}
-                className="w-full py-5 bg-primary text-on-primary font-hanken text-label-sm tracking-[0.3em] transition-colors duration-500 mb-4"
-              >
-                ADD TO CART
-              </motion.button>
+              {/* Wishlist + CTA */}
+              <div className="flex gap-3 mb-4">
+                <motion.button
+                  onClick={() => toggleWishlist(product)}
+                  whileHover={{ scale: 1.05 }}
+                  className={`px-5 py-5 border font-hanken text-label-sm tracking-widest transition-colors duration-300 flex items-center justify-center ${
+                    isInWishlist(product.id)
+                      ? 'bg-red-500/10 border-red-500 text-red-400'
+                      : 'border-primary/20 text-primary hover:border-primary'
+                  }`}
+                  title={isInWishlist(product.id) ? 'Remove from wishlist' : 'Add to wishlist'}
+                >
+                  <span className="material-symbols-outlined">{isInWishlist(product.id) ? 'favorite' : 'favorite_border'}</span>
+                </motion.button>
+                <motion.button
+                  onClick={handleAddToCart}
+                  whileHover={{ backgroundColor: '#C5A059' }}
+                  className="flex-1 py-5 bg-primary text-on-primary font-hanken text-label-sm tracking-[0.3em] transition-colors duration-500"
+                >
+                  ADD TO CART
+                </motion.button>
+              </div>
 
               <Link
                 to="/bespoke"

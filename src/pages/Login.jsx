@@ -43,7 +43,7 @@ const getPasswordStrength = (pw) => {
 };
 
 const Login = () => {
-  const { login, register } = useAuth();
+  const { login, register, resetPassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isRegister, setIsRegister] = useState(location.state?.register ?? false);
@@ -57,6 +57,8 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [rateLimited, setRateLimited] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   useEffect(() => {
     const data = getRateLimit();
@@ -150,6 +152,23 @@ const Login = () => {
     }
   };
 
+  const handleResetPassword = async () => {
+    const emailErr = validateEmailDeep(email);
+    if (emailErr) { setFieldErrors({ email: emailErr }); return; }
+    setResetLoading(true);
+    setError('');
+    try {
+      await resetPassword(email);
+      setResetSent(true);
+      setError('Password reset email sent. Check your inbox.');
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') setError('No account found with this email.');
+      else setError(err.message);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const strength = isRegister ? getPasswordStrength(password) : null;
 
   return (
@@ -202,6 +221,11 @@ const Login = () => {
               </button>
             </div>
             {fieldErrors.password && <p className="text-red-400 text-[10px] mt-1">{fieldErrors.password}</p>}
+            {!isRegister && !resetSent && (
+              <button type="button" onClick={handleResetPassword} disabled={resetLoading} className="font-hanken text-[10px] text-secondary hover:text-primary transition-colors mt-2 underline underline-offset-2 cursor-pointer bg-transparent border-none p-0">
+                {resetLoading ? 'Sending...' : 'Forgot Password?'}
+              </button>
+            )}
             {isRegister && strength && (
               <div className="mt-2 space-y-1">
                 <div className="h-1 bg-primary/10 rounded-none overflow-hidden">
