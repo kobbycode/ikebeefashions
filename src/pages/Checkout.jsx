@@ -132,7 +132,7 @@ const Checkout = () => {
         return {
           name: item.title || item.name,
           units: item.quantity,
-          price: (item.price * item.quantity).toFixed(2),
+          price: `GHS ${(item.price * item.quantity).toFixed(2)}`,
           item: imageUrl
         };
       });
@@ -150,13 +150,13 @@ const Checkout = () => {
         orders: formattedItems,
         order_html: `<table style="width: 100%; border-collapse: collapse;">${orderHtml}</table>`,
         order_details: orderDetails,
-        shipping_cost: shippingFee.toFixed(2),
-        tax_cost: tax.toFixed(2),
-        total_cost: finalTotal.toFixed(2),
+        shipping_cost: `GHS ${shippingFee.toFixed(2)}`,
+        tax_cost: `GHS ${tax.toFixed(2)}`,
+        total_cost: `GHS ${finalTotal.toFixed(2)}`,
         cost: {
-          shipping: shippingFee.toFixed(2),
-          tax: tax.toFixed(2),
-          total: finalTotal.toFixed(2)
+          shipping: `GHS ${shippingFee.toFixed(2)}`,
+          tax: `GHS ${tax.toFixed(2)}`,
+          total: `GHS ${finalTotal.toFixed(2)}`
         },
         logo: window.location.origin + "/logo.jpeg",
         user_email: formData.email,
@@ -241,7 +241,7 @@ const Checkout = () => {
         return {
           name: item.title || item.name,
           units: item.quantity,
-          price: (item.price * item.quantity).toFixed(2),
+          price: `GHS ${(item.price * item.quantity).toFixed(2)}`,
           item: imageUrl
         };
       });
@@ -259,13 +259,13 @@ const Checkout = () => {
         orders: formattedItems,
         order_html: `<table style="width: 100%; border-collapse: collapse;">${orderHtml}</table>`,
         order_details: orderDetails,
-        shipping_cost: shippingFee.toFixed(2),
-        tax_cost: tax.toFixed(2),
-        total_cost: finalTotal.toFixed(2),
+        shipping_cost: `GHS ${shippingFee.toFixed(2)}`,
+        tax_cost: `GHS ${tax.toFixed(2)}`,
+        total_cost: `GHS ${finalTotal.toFixed(2)}`,
         cost: {
-          shipping: shippingFee.toFixed(2),
-          tax: tax.toFixed(2),
-          total: finalTotal.toFixed(2)
+          shipping: `GHS ${shippingFee.toFixed(2)}`,
+          tax: `GHS ${tax.toFixed(2)}`,
+          total: `GHS ${finalTotal.toFixed(2)}`
         },
         logo: window.location.origin + "/logo.jpeg",
         user_email: formData.email,
@@ -812,7 +812,7 @@ const Checkout = () => {
               {cart.map(item => (
                 <div key={item.id} className="flex gap-4">
                   <div className="relative w-20 h-28 bg-surface shrink-0">
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    <img src={item.image} alt={item.name} onError={e => { e.target.style.display = 'none'; }} className="w-full h-full object-cover" />
                     <span className="absolute -top-2 -right-2 w-6 h-6 bg-secondary text-white text-xs flex items-center justify-center rounded-full font-bold">
                       {item.quantity}
                     </span>

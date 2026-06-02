@@ -320,7 +320,7 @@ const Navbar = () => {
                     {cart.map(item => (
                       <div key={item.id} className="flex gap-4 border-b border-primary/10 pb-6">
                         <div className="w-24 h-32 bg-surface overflow-hidden">
-                          <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                          <img src={item.image} alt={item.name} onError={e => { e.target.style.display = 'none'; }} className="w-full h-full object-cover" />
                         </div>
                         <div className="flex-grow flex flex-col justify-between">
                           <div>

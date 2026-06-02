@@ -7,6 +7,11 @@ import { db, auth, storage, loginAdmin, logoutAdmin } from '../services/api';
 import { products as localProducts } from '../data/products';
 import { useAlert } from '../context/AlertContext';
 import { createNotification, NotificationBell } from '../utils/notifications';
+import emailjs from '@emailjs/browser';
+
+const IMG_FALLBACK = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500" viewBox="0 0 400 500"><rect fill="#1a1a1a" width="400" height="500"/><text x="200" y="250" text-anchor="middle" fill="#555" font-family="sans-serif" font-size="14" dy=".3em">Unavailable</text></svg>'
+);
 
 const Admin = () => {
   const [user, setUser] = useState(null);
@@ -23,6 +28,8 @@ const Admin = () => {
   const [editingProduct, setEditingProduct] = useState(null);
   const [newProduct, setNewProduct] = useState({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
   const [newProductImage, setNewProductImage] = useState(null);
+  const [newProductGallery, setNewProductGallery] = useState([]);
+  const [existingGalleryUrls, setExistingGalleryUrls] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
 
   // Lookbook Form State
@@ -155,6 +162,12 @@ const Admin = () => {
     }
   };
 
+  const uploadFile = async (file, prefix) => {
+    const fileRef = ref(storage, `${prefix}/${Date.now()}_${file.name}`);
+    await uploadBytes(fileRef, file);
+    return await getDownloadURL(fileRef);
+  };
+
   const handleAddOrUpdateProduct = async (e) => {
     e.preventDefault();
     if (!editingProduct && !newProductImage) return customAlert("Please select an image before publishing.", "warning");
@@ -164,15 +177,21 @@ const Admin = () => {
       let imageUrl = editingProduct ? editingProduct.image : null;
 
       if (newProductImage) {
-        const imageRef = ref(storage, `products/${Date.now()}_${newProductImage.name}`);
-        await uploadBytes(imageRef, newProductImage);
-        imageUrl = await getDownloadURL(imageRef);
+        imageUrl = await uploadFile(newProductImage, 'products');
+      }
+
+      const galleryUrls = [...existingGalleryUrls];
+      for (const file of newProductGallery) {
+        const url = await uploadFile(file, 'products/gallery');
+        galleryUrls.push(url);
       }
 
       const productData = {
         name: newProduct.name,
         title: newProduct.name,
         image: imageUrl,
+        galleryImgs: galleryUrls.length ? galleryUrls : [imageUrl],
+        detailImg: galleryUrls.length > 1 ? galleryUrls[1] : imageUrl,
         price: parseFloat(newProduct.price),
         category: newProduct.category,
         tag: newProduct.tag || '',
@@ -199,7 +218,9 @@ const Admin = () => {
       setEditingProduct(null);
       setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
       setNewProductImage(null);
-      fetchData(); // Refresh list
+      setNewProductGallery([]);
+      setExistingGalleryUrls([]);
+      fetchData();
     } catch (error) {
       console.error("Upload error:", error);
       await customAlert(`Failed to ${editingProduct ? 'update' : 'upload'} product.`, "danger");
@@ -225,6 +246,8 @@ const Admin = () => {
       details: detailsStr
     });
     setNewProductImage(null);
+    setNewProductGallery([]);
+    setExistingGalleryUrls(prod.galleryImgs?.filter(u => u) || []);
     setShowProductForm(true);
   };
 
@@ -369,6 +392,29 @@ const Admin = () => {
         recipientType: 'admin',
         orderId: orderId,
       });
+
+      if (orderItem?.customerInfo?.email) {
+        try {
+          await emailjs.send('service_csylkvj', 'template_hgjfxad', {
+            to_name: orderItem.customerInfo.firstName || 'Customer',
+            to_email: orderItem.customerInfo.email,
+            email: orderItem.customerInfo.email,
+            reply_to: orderItem.customerInfo.email,
+            order_id: shortRef,
+            order_details: `Your order status has been updated to "${newStatus}".`,
+            total_cost: '',
+            shipping_cost: '',
+            tax_cost: '',
+            user_email: orderItem.customerInfo.email,
+            recipient: orderItem.customerInfo.email,
+            recipient_email: orderItem.customerInfo.email,
+            logo: window.location.origin + '/logo.jpeg',
+          }, 'VBWEkwRY-kFE8tLyS');
+        } catch (emailErr) {
+          console.error('Failed to send status email:', emailErr);
+        }
+      }
+
       await customAlert(`Order status updated to "${newStatus}".`, "success");
     } catch (error) {
       console.error("Error updating order status:", error);
@@ -557,6 +603,9 @@ const Admin = () => {
                     setShowProductForm(!showProductForm);
                     setEditingProduct(null);
                     setNewProduct({ name: '', price: '', category: '', tag: '', isNew: false, details: '' });
+                    setNewProductImage(null);
+                    setNewProductGallery([]);
+                    setExistingGalleryUrls([]);
                   }}
                   className="bg-[#C5A880] text-white px-6 py-3 text-xs uppercase tracking-widest hover:bg-[#a38a68] transition-colors"
                 >
@@ -591,8 +640,41 @@ const Admin = () => {
                       <input type="text" value={newProduct.tag} onChange={e => setNewProduct({...newProduct, tag: e.target.value})} className="w-full bg-transparent border-b border-white/20 pb-2 text-white text-sm focus:outline-none focus:border-[#C5A880]"/>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Product Image</label>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Main Product Image</label>
                       <input type="file" accept="image/*" onChange={e => setNewProductImage(e.target.files[0])} className="text-xs text-white/50 file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-xs file:uppercase file:tracking-widest file:bg-white/10 file:text-white hover:file:bg-white/20 cursor-pointer"/>
+                      {(editingProduct?.image || newProductImage) && (
+                        <div className="mt-2 flex gap-2">
+                          {editingProduct?.image && !newProductImage && (
+                            <div className="relative w-16 h-16">
+                              <img src={editingProduct.image} alt="Current main" className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                          {newProductImage && (
+                            <div className="relative w-16 h-16">
+                              <img src={URL.createObjectURL(newProductImage)} alt="New main" className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-white/50 uppercase tracking-widest mb-2">Gallery Images (additional views)</label>
+                      <input type="file" accept="image/*" multiple onChange={e => setNewProductGallery(Array.from(e.target.files))} className="text-xs text-white/50 file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-xs file:uppercase file:tracking-widest file:bg-white/10 file:text-white hover:file:bg-white/20 cursor-pointer"/>
+                      {(existingGalleryUrls.length > 0 || newProductGallery.length > 0) && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {existingGalleryUrls.map((url, i) => (
+                            <div key={`exist-${i}`} className="relative w-16 h-16 group/img">
+                              <img src={url} alt={`Gallery ${i + 1}`} className="w-full h-full object-cover" />
+                              <button type="button" onClick={() => setExistingGalleryUrls(prev => prev.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-600 text-white text-[10px] w-4 h-4 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity">&times;</button>
+                            </div>
+                          ))}
+                          {newProductGallery.map((file, i) => (
+                            <div key={`new-${i}`} className="relative w-16 h-16">
+                              <img src={URL.createObjectURL(file)} alt={`New ${i + 1}`} className="w-full h-full object-cover" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-end">
                       <label className="flex items-center gap-3 cursor-pointer">
@@ -617,7 +699,7 @@ const Admin = () => {
               {data.products.map(prod => (
                 <div key={prod.id} className="bg-[#1A1A1A] border border-white/10 group relative overflow-hidden">
                   <div className="h-48 overflow-hidden bg-black/50">
-                    <img src={prod.image} alt={prod.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                    <img src={prod.image} alt={prod.name} onError={e => { if (e.target.src !== IMG_FALLBACK) e.target.src = IMG_FALLBACK; }} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                   </div>
                   <div className="p-4">
                     <p className="text-[10px] text-[#C5A880] tracking-widest uppercase mb-1">{prod.category}</p>
@@ -704,7 +786,7 @@ const Admin = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               {data.lookbook.map(asset => (
                 <div key={asset.id} className="bg-[#1A1A1A] border border-white/10 group relative overflow-hidden h-64">
-                  <img src={asset.image} alt={asset.caption} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <img src={asset.image} alt={asset.caption} onError={e => { if (e.target.src !== IMG_FALLBACK) e.target.src = IMG_FALLBACK; }} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-end">
                     <p className="text-xs text-white/90 uppercase tracking-widest truncate">{asset.caption || 'No Caption'}</p>
                     <p className="text-[10px] text-[#C5A880] mt-1">{formatDate(asset.createdAt)}</p>
@@ -962,7 +1044,7 @@ const Admin = () => {
                         {selectedRequest.items?.map((item, idx) => (
                           <div key={idx} className="flex justify-between items-center py-2 border-b border-white/5">
                             <div className="flex items-center gap-4">
-                              <img src={item.image} alt={item.name} className="w-12 h-16 object-cover" />
+                              <img src={item.image} alt={item.name} onError={e => { if (e.target.src !== IMG_FALLBACK) e.target.src = IMG_FALLBACK; }} className="w-12 h-16 object-cover" />
                               <div>
                                 <p className="text-sm">{item.name}</p>
                                 <p className="text-[10px] text-white/50 uppercase tracking-widest">Qty: {item.quantity} | Size: {item.size}</p>
