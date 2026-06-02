@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, formatGHS } from '../hooks/useProducts';
 import LazyImage from '../components/LazyImage';
+import { useWishlist } from '../context/WishlistContext';
 
 const CustomCursor = () => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -44,6 +45,7 @@ const CustomCursor = () => {
 
 const Collection = () => {
   const { products } = useProducts();
+  const { toggleWishlist, isInWishlist } = useWishlist();
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
 
@@ -160,6 +162,13 @@ const Collection = () => {
                         <span className="bg-amber-600 text-white text-[10px] uppercase tracking-widest px-3 py-1 font-hanken">Only {product.totalStock} left</span>
                       )}
                     </div>
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleWishlist(product); }}
+                      className="absolute top-4 right-4 z-20 w-8 h-8 flex items-center justify-center bg-black/30 hover:bg-black/50 transition-colors rounded-full"
+                      title={isInWishlist(product.id) ? 'Remove from wishlist' : 'Add to wishlist'}
+                    >
+                      <span className="material-symbols-outlined text-sm text-white">{isInWishlist(product.id) ? 'favorite' : 'favorite_border'}</span>
+                    </button>
 
                     {/* Detail Image on hover — cycles through gallery */}
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none">
